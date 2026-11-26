@@ -19,19 +19,32 @@ import {
   type OmpStartSessionInput,
 } from "./runtime.js";
 import {
+  OmpAbortRestoreQueueResultSchema,
+  OmpAutoRetryResultSchema,
   OmpBranchMessagesResultSchema,
   OmpBranchResultSchema,
+  OmpBtwCancelResultSchema,
+  OmpBtwHistoryResultSchema,
+  OmpBtwResultSchema,
+  OmpCacheWarmingResultSchema,
   OmpCommandsResultSchema,
+  OmpExportHtmlResultSchema,
   type OmpExtensionUiResponse,
+  OmpForkResultSchema,
+  OmpGoalResultSchema,
   OmpHostToolsResultSchema,
   OmpMessagesResultSchema,
   OmpModelSchema,
   OmpModelsResultSchema,
   OmpPromptAckSchema,
+  OmpPromoteQueuedResultSchema,
+  OmpRemoveQueuedResultSchema,
   OmpRpcCommandSchema,
   parseOmpRuntimeEvent,
   OmpSessionStateSchema,
   OmpSessionStatsSchema,
+  OmpSlowModeResultSchema,
+  OmpTodosResultSchema,
   type OmpThinkingLevel,
   type OmpAgentMessage,
   type OmpModel,
@@ -45,6 +58,7 @@ import {
   type OmpSessionState,
   type OmpSessionStats,
   type OmpSubagentSubscriptionLevel,
+  type OmpTodoPhase,
 } from "./rpc-types.js";
 
 const DEFAULT_OMP_COMMAND: [string, ...string[]] = [process.env.OMP_COMMAND ?? "omp"];
@@ -288,6 +302,117 @@ class OmpCliRuntimeSession implements OmpRuntimeSession {
       type: "handoff",
       ...(customInstructions ? { customInstructions } : {}),
     });
+  }
+
+  async goal(
+    op: "get" | "create" | "resume" | "pause" | "drop",
+    objective?: string,
+    tokenBudget?: number,
+  ) {
+    return OmpGoalResultSchema.parse(
+      await this.request({
+        type: "goal",
+        op,
+        ...(objective ? { objective } : {}),
+        ...(tokenBudget !== undefined ? { token_budget: tokenBudget } : {}),
+      }),
+    );
+  }
+
+  async btw(question: string, recordId?: string) {
+    return OmpBtwResultSchema.parse(
+      await this.request(
+        { type: "btw", question, ...(recordId ? { recordId } : {}) },
+        // A btw answer can take as long as the main run does.
+        JSONL_RPC_NO_TIMEOUT,
+      ),
+    );
+  }
+
+  async btwCancel(recordId?: string) {
+    return OmpBtwCancelResultSchema.parse(
+      await this.request({ type: "btw_cancel", ...(recordId ? { recordId } : {}) }),
+    );
+  }
+
+  async getBtwHistory() {
+    return OmpBtwHistoryResultSchema.parse(await this.request({ type: "get_btw_history" }));
+  }
+
+  async removeQueuedMessage(message: string, queue: "steering" | "followUp") {
+    return OmpRemoveQueuedResultSchema.parse(
+      await this.request({ type: "remove_queued_message", message, queue }),
+    );
+  }
+
+  async promoteQueuedMessage(message: string) {
+    return OmpPromoteQueuedResultSchema.parse(
+      await this.request({ type: "promote_queued_message", message }),
+    );
+  }
+
+  async abortAndRestoreQueue() {
+    return OmpAbortRestoreQueueResultSchema.parse(
+      await this.request({ type: "abort_and_restore_queue" }),
+    );
+  }
+
+  async setAutoRetry(enabled: boolean) {
+    return OmpAutoRetryResultSchema.parse(await this.request({ type: "set_auto_retry", enabled }));
+  }
+
+  async abortRetry(): Promise<void> {
+    await this.requestStopWork({ type: "abort_retry" });
+  }
+
+  async setTodos(phases: OmpTodoPhase[]) {
+    return OmpTodosResultSchema.parse(await this.request({ type: "set_todos", phases }));
+  }
+
+  bash(command: string, excludeFromContext?: boolean): Promise<unknown> {
+    return this.request(
+      { type: "bash", command, ...(excludeFromContext ? { excludeFromContext } : {}) },
+      // Shell output can stream in after an arbitrarily long run.
+      JSONL_RPC_NO_TIMEOUT,
+    );
+  }
+
+  async abortBash(): Promise<void> {
+    await this.requestStopWork({ type: "abort_bash" });
+  }
+
+  async setSessionName(name: string): Promise<void> {
+    await this.request({ type: "set_session_name", name });
+  }
+
+  async forkFrom(entryId?: string) {
+    const data = OmpForkResultSchema.parse(
+      await this.request({ type: "fork", ...(entryId ? { entryId } : {}) }),
+    );
+    if (data.cancelled === true) {
+      throw new Error("OMP fork was cancelled");
+    }
+    return data;
+  }
+
+  async exportHtml(outputPath?: string) {
+    return OmpExportHtmlResultSchema.parse(
+      await this.request(
+        { type: "export_html", ...(outputPath ? { outputPath } : {}) },
+        // Rendering a long session to HTML can take a while.
+        JSONL_RPC_NO_TIMEOUT,
+      ),
+    );
+  }
+
+  async setSlowMode(enabled: boolean) {
+    return OmpSlowModeResultSchema.parse(await this.request({ type: "set_slow_mode", enabled }));
+  }
+
+  async setCacheWarming(mode: "off" | "streaming" | "idle") {
+    return OmpCacheWarmingResultSchema.parse(
+      await this.request({ type: "set_cache_warming", mode }),
+    );
   }
 
   respondToExtensionUiRequest(id: string, response: OmpExtensionUiResponse): void {

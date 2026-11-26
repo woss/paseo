@@ -66,6 +66,12 @@ describe("OMP slash command mapper", () => {
       "handoff",
       "steer",
       "follow-up",
+      "goal",
+      "btw",
+      "queue",
+      "autoretry",
+      "fork",
+      "export-html",
     ]);
   });
 });

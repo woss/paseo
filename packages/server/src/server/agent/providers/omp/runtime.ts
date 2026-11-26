@@ -1,8 +1,19 @@
 import type {
+  OmpAbortRestoreQueueResult,
   OmpAgentMessage,
+  OmpAutoRetryResult,
+  OmpBtwCancelResult,
+  OmpBtwHistoryResult,
+  OmpBtwResult,
+  OmpCacheWarmingResult,
+  OmpExportHtmlResult,
   OmpExtensionUiResponse,
+  OmpForkResult,
+  OmpGoalResult,
   OmpModel,
   OmpPromptAck,
+  OmpPromoteQueuedResult,
+  OmpRemoveQueuedResult,
   OmpRpcHostToolDefinition,
   OmpRpcHostToolResult,
   OmpRpcHostToolUpdate,
@@ -10,8 +21,11 @@ import type {
   OmpRuntimeEvent,
   OmpSessionState,
   OmpSessionStats,
+  OmpSlowModeResult,
   OmpSubagentSubscriptionLevel,
   OmpThinkingLevel,
+  OmpTodoPhase,
+  OmpTodosResult,
 } from "./rpc-types.js";
 import type { ProviderRuntimeSettings } from "../../provider-launch-config.js";
 
@@ -82,6 +96,33 @@ export interface OmpRuntimeSession {
     images?: Array<{ type: "image"; data: string; mimeType: string }>,
   ): Promise<void>;
   handoff(customInstructions?: string): Promise<void>;
+  // Goal mode (RPC-only op; no OMP slash twin).
+  goal(
+    op: "get" | "create" | "resume" | "pause" | "drop",
+    objective?: string,
+    tokenBudget?: number,
+  ): Promise<OmpGoalResult>;
+  // Side question on the running session.
+  btw(question: string, recordId?: string): Promise<OmpBtwResult>;
+  btwCancel(recordId?: string): Promise<OmpBtwCancelResult>;
+  getBtwHistory(): Promise<OmpBtwHistoryResult>;
+  // OMP-side prompt queue (fed by steer/followUp prompts while a run is active).
+  removeQueuedMessage(
+    message: string,
+    queue: "steering" | "followUp",
+  ): Promise<OmpRemoveQueuedResult>;
+  promoteQueuedMessage(message: string): Promise<OmpPromoteQueuedResult>;
+  abortAndRestoreQueue(): Promise<OmpAbortRestoreQueueResult>;
+  setAutoRetry(enabled: boolean): Promise<OmpAutoRetryResult>;
+  abortRetry(): Promise<void>;
+  setTodos(phases: OmpTodoPhase[]): Promise<OmpTodosResult>;
+  bash(command: string, excludeFromContext?: boolean): Promise<unknown>;
+  abortBash(): Promise<void>;
+  setSessionName(name: string): Promise<void>;
+  forkFrom(entryId?: string): Promise<OmpForkResult>;
+  exportHtml(outputPath?: string): Promise<OmpExportHtmlResult>;
+  setSlowMode(enabled: boolean): Promise<OmpSlowModeResult>;
+  setCacheWarming(mode: "off" | "streaming" | "idle"): Promise<OmpCacheWarmingResult>;
   respondToExtensionUiRequest(id: string, response: OmpExtensionUiResponse): void;
   cancelExtensionUiRequest(id: string): void;
   close(): Promise<void>;

@@ -187,6 +187,30 @@ export const OmpSessionStatsSchema = z
   })
   .passthrough();
 
+/**
+ * Subcommand enumeration from OMP's command registry (e.g. /mcp add|list|remove…).
+ * OMP sends one level per registry entry; nested values are preserved for round-trips.
+ */
+export interface OmpSlashSubcommand {
+  name: string;
+  description?: string;
+  source?: string;
+  input?: { hint?: string } | null;
+  subcommands?: OmpSlashSubcommand[];
+}
+
+export const OmpSlashSubcommandSchema: z.ZodType<OmpSlashSubcommand> = z.lazy(() =>
+  z
+    .object({
+      name: z.string(),
+      description: z.string().optional(),
+      source: z.string().optional(),
+      input: z.object({ hint: z.string().optional() }).passthrough().nullable().optional(),
+      subcommands: z.array(OmpSlashSubcommandSchema).optional(),
+    })
+    .passthrough(),
+);
+
 export const OmpRpcSlashCommandSchema = z
   .object({
     name: z.string(),
@@ -194,6 +218,7 @@ export const OmpRpcSlashCommandSchema = z
     source: z.string().optional(),
     sourceInfo: z.record(z.string(), z.unknown()).optional(),
     input: z.object({ hint: z.string().optional() }).passthrough().nullable().optional(),
+    subcommands: z.array(OmpSlashSubcommandSchema).optional(),
   })
   .passthrough();
 
@@ -454,12 +479,40 @@ export const OmpAutoCompactionEndEventSchema = z
     skipped: z.boolean().optional(),
   })
   .passthrough();
+export const OmpBtwRecordSchema = z
+  .object({
+    id: z.string(),
+    question: z.string(),
+    answer: z.string().optional(),
+    // OMP may add statuses; unknown values are treated as still running.
+    status: z.string(),
+    leafId: z.string().optional(),
+    createdAt: z.string().optional(),
+    updatedAt: z.string().optional(),
+    error: z.string().optional(),
+    followUps: z.array(z.string()).optional(),
+  })
+  .passthrough();
+export const OmpBtwRecordEventSchema = z
+  .object({ type: z.literal("btw_record"), record: OmpBtwRecordSchema })
+  .passthrough();
+export const OmpBtwDeltaEventSchema = z
+  .object({ type: z.literal("btw_delta"), recordId: z.string(), delta: z.string().optional() })
+  .passthrough();
+export const OmpQueueUpdateEventSchema = z
+  .object({
+    type: z.literal("queue_update"),
+    steering: z.array(z.string()).optional(),
+    followUp: z.array(z.string()).optional(),
+  })
+  .passthrough();
 export const OmpAvailableCommandSchema = z
   .object({
     name: z.string(),
     description: z.string().optional(),
     source: z.string().optional(),
     input: z.object({ hint: z.string().optional() }).passthrough().nullable().optional(),
+    subcommands: z.array(OmpSlashSubcommandSchema).optional(),
   })
   .passthrough();
 export const OmpAvailableCommandsUpdateEventSchema = z
@@ -542,6 +595,9 @@ export const OmpRuntimeEventSchema = z.discriminatedUnion("type", [
   OmpRetryFallbackSucceededEventSchema,
   OmpAutoCompactionStartEventSchema,
   OmpAutoCompactionEndEventSchema,
+  OmpBtwRecordEventSchema,
+  OmpBtwDeltaEventSchema,
+  OmpQueueUpdateEventSchema,
   OmpAvailableCommandsUpdateEventSchema,
   OmpRpcHostToolCallRequestSchema,
   OmpRpcHostToolCancelRequestSchema,
@@ -613,6 +669,56 @@ export const OmpRpcCommandSchema = z.discriminatedUnion("type", [
     type: z.literal("handoff"),
     customInstructions: z.string().optional(),
   }),
+  z.object({
+    ...OmpCommandBase,
+    type: z.literal("goal"),
+    op: z.enum(["get", "create", "resume", "pause", "drop"]),
+    objective: z.string().optional(),
+    token_budget: z.number().optional(),
+  }),
+  z.object({
+    ...OmpCommandBase,
+    type: z.literal("btw"),
+    question: z.string(),
+    recordId: z.string().optional(),
+  }),
+  z.object({ ...OmpCommandBase, type: z.literal("btw_cancel"), recordId: z.string().optional() }),
+  z.object({ ...OmpCommandBase, type: z.literal("get_btw_history") }),
+  z.object({
+    ...OmpCommandBase,
+    type: z.literal("remove_queued_message"),
+    message: z.string(),
+    queue: z.enum(["steering", "followUp"]),
+  }),
+  z.object({ ...OmpCommandBase, type: z.literal("promote_queued_message"), message: z.string() }),
+  z.object({ ...OmpCommandBase, type: z.literal("abort_and_restore_queue") }),
+  z.object({ ...OmpCommandBase, type: z.literal("set_auto_retry"), enabled: z.boolean() }),
+  z.object({ ...OmpCommandBase, type: z.literal("abort_retry") }),
+  z.object({
+    ...OmpCommandBase,
+    type: z.literal("set_todos"),
+    phases: z.array(OmpTodoPhaseSchema),
+  }),
+  z.object({
+    ...OmpCommandBase,
+    type: z.literal("bash"),
+    command: z.string(),
+    excludeFromContext: z.boolean().optional(),
+  }),
+  z.object({ ...OmpCommandBase, type: z.literal("abort_bash") }),
+  z.object({ ...OmpCommandBase, type: z.literal("set_session_name"), name: z.string() }),
+  z.object({ ...OmpCommandBase, type: z.literal("fork"), entryId: z.string().optional() }),
+  z.object({
+    ...OmpCommandBase,
+    type: z.literal("export_html"),
+    outputPath: z.string().optional(),
+  }),
+  z.object({ ...OmpCommandBase, type: z.literal("set_slow_mode"), enabled: z.boolean() }),
+  z.object({
+    ...OmpCommandBase,
+    type: z.literal("set_cache_warming"),
+    mode: z.enum(["off", "streaming", "idle"]),
+  }),
 ]);
 
 export const OmpPromptAckSchema = z
@@ -639,6 +745,50 @@ export const OmpBranchMessagesResultSchema = z
     messages: z.array(z.object({ entryId: z.string(), text: z.string() }).passthrough()).optional(),
   })
   .passthrough();
+export const OmpGoalResultSchema = z
+  .object({ goal: OmpGoalSchema.nullable().optional(), state: OmpGoalModeStateSchema.optional() })
+  .passthrough();
+export const OmpBtwResultSchema = z.object({ record: OmpBtwRecordSchema.optional() }).passthrough();
+export const OmpBtwCancelResultSchema = z
+  .object({ cancelled: z.boolean().optional() })
+  .passthrough();
+export const OmpBtwHistoryResultSchema = z
+  .object({ records: z.array(OmpBtwRecordSchema).optional() })
+  .passthrough();
+export const OmpRemoveQueuedResultSchema = z
+  .object({ removed: z.boolean().optional(), imagesDropped: z.number().optional() })
+  .passthrough();
+export const OmpPromoteQueuedResultSchema = z
+  .object({ promoted: z.boolean().optional() })
+  .passthrough();
+export const OmpAbortRestoreQueueResultSchema = z
+  .object({
+    steering: z
+      .array(
+        z
+          .object({ text: z.string(), images: z.array(OmpImageContentSchema).optional() })
+          .passthrough(),
+      )
+      .optional(),
+    followUp: z
+      .array(
+        z
+          .object({ text: z.string(), images: z.array(OmpImageContentSchema).optional() })
+          .passthrough(),
+      )
+      .optional(),
+    imagesDropped: z.number().optional(),
+    truncated: z.boolean().optional(),
+  })
+  .passthrough();
+export const OmpAutoRetryResultSchema = z.object({ enabled: z.boolean().optional() }).passthrough();
+export const OmpTodosResultSchema = z
+  .object({ todoPhases: z.array(OmpTodoPhaseSchema).optional() })
+  .passthrough();
+export const OmpForkResultSchema = z.object({ cancelled: z.boolean().optional() }).passthrough();
+export const OmpExportHtmlResultSchema = z.object({ path: z.string().optional() }).passthrough();
+export const OmpSlowModeResultSchema = z.object({ enabled: z.boolean().optional() }).passthrough();
+export const OmpCacheWarmingResultSchema = z.object({ mode: z.string().optional() }).passthrough();
 
 export type OmpThinkingLevel = z.infer<typeof OmpThinkingLevelSchema>;
 export type OmpImageContent = z.infer<typeof OmpImageContentSchema>;
@@ -709,6 +859,23 @@ export type OmpAutoCompactionStartEvent = z.infer<typeof OmpAutoCompactionStartE
 export type OmpAutoCompactionEndEvent = z.infer<typeof OmpAutoCompactionEndEventSchema>;
 export type OmpAvailableCommand = z.infer<typeof OmpAvailableCommandSchema>;
 export type OmpAvailableCommandsUpdateEvent = z.infer<typeof OmpAvailableCommandsUpdateEventSchema>;
+export type OmpBtwRecord = z.infer<typeof OmpBtwRecordSchema>;
+export type OmpBtwRecordEvent = z.infer<typeof OmpBtwRecordEventSchema>;
+export type OmpBtwDeltaEvent = z.infer<typeof OmpBtwDeltaEventSchema>;
+export type OmpQueueUpdateEvent = z.infer<typeof OmpQueueUpdateEventSchema>;
+export type OmpGoalResult = z.infer<typeof OmpGoalResultSchema>;
+export type OmpBtwResult = z.infer<typeof OmpBtwResultSchema>;
+export type OmpBtwCancelResult = z.infer<typeof OmpBtwCancelResultSchema>;
+export type OmpBtwHistoryResult = z.infer<typeof OmpBtwHistoryResultSchema>;
+export type OmpRemoveQueuedResult = z.infer<typeof OmpRemoveQueuedResultSchema>;
+export type OmpPromoteQueuedResult = z.infer<typeof OmpPromoteQueuedResultSchema>;
+export type OmpAbortRestoreQueueResult = z.infer<typeof OmpAbortRestoreQueueResultSchema>;
+export type OmpAutoRetryResult = z.infer<typeof OmpAutoRetryResultSchema>;
+export type OmpTodosResult = z.infer<typeof OmpTodosResultSchema>;
+export type OmpForkResult = z.infer<typeof OmpForkResultSchema>;
+export type OmpExportHtmlResult = z.infer<typeof OmpExportHtmlResultSchema>;
+export type OmpSlowModeResult = z.infer<typeof OmpSlowModeResultSchema>;
+export type OmpCacheWarmingResult = z.infer<typeof OmpCacheWarmingResultSchema>;
 export type OmpRpcCommand = z.infer<typeof OmpRpcCommandSchema>;
 export type OmpPromptAck = z.infer<typeof OmpPromptAckSchema> & { requestId?: string };
 
