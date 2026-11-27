@@ -195,6 +195,26 @@ function promptResultError(result: {
   return result.error?.message || "OMP rejected the prompt";
 }
 
+/** One-line summary of a zod issues array, or null when `error` is not one. */
+function ompZodIssueSummary(error: unknown): string | null {
+  if (typeof error !== "object" || error === null || !("issues" in error)) {
+    return null;
+  }
+  const issues: unknown = error.issues;
+  if (!Array.isArray(issues) || issues.length === 0) {
+    return null;
+  }
+  const first: unknown = issues[0];
+  if (typeof first !== "object" || first === null || !("message" in first)) {
+    return null;
+  }
+  const at =
+    "path" in first && Array.isArray(first.path) && first.path.length > 0
+      ? first.path.map(String).join(".")
+      : "response";
+  return `unexpected OMP response at ${at}: ${String(first.message)} (${issues.length} issue(s))`;
+}
+
 interface StartTurnResult {
   turnId: string;
 }
@@ -1535,6 +1555,11 @@ export class OmpAgentSession implements AgentSession {
   }
 
   private ompErrorMessage(error: unknown): string {
+    // Zod errors (schema mismatches on OMP responses) dump every issue; render one line.
+    const zodSummary = ompZodIssueSummary(error);
+    if (zodSummary) {
+      return zodSummary;
+    }
     return error instanceof Error ? error.message : String(error);
   }
 

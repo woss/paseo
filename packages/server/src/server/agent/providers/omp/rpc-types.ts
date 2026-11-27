@@ -416,8 +416,9 @@ export const OmpGoalSchema = z
     tokenBudget: z.number().optional(),
     tokensUsed: z.number().optional(),
     timeUsedSeconds: z.number().optional(),
-    createdAt: z.string().optional(),
-    updatedAt: z.string().optional(),
+    // OMP sends epoch millis as numbers; tolerate strings for older versions.
+    createdAt: z.union([z.string(), z.number()]).optional(),
+    updatedAt: z.union([z.string(), z.number()]).optional(),
   })
   .passthrough();
 export const OmpGoalModeStateSchema = z
@@ -487,8 +488,9 @@ export const OmpBtwRecordSchema = z
     // OMP may add statuses; unknown values are treated as still running.
     status: z.string(),
     leafId: z.string().optional(),
-    createdAt: z.string().optional(),
-    updatedAt: z.string().optional(),
+    // OMP sends epoch millis as numbers; tolerate strings for older versions.
+    createdAt: z.union([z.string(), z.number()]).optional(),
+    updatedAt: z.union([z.string(), z.number()]).optional(),
     error: z.string().optional(),
     followUps: z.array(z.string()).optional(),
   })
