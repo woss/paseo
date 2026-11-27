@@ -502,7 +502,26 @@ export type AgentStreamEvent =
       type: "background_work";
       provider: AgentProvider;
       items: import("./background-work/index.js").AgentBackgroundWorkInput[] | null;
+    }
+  | {
+      /** omp side question (btw) record; full record each change, last wins. */
+      type: "btw_record";
+      provider: AgentProvider;
+      record: AgentBtwRecord;
     };
+
+/** omp side-question record. Timestamps are epoch-millis numbers or ISO strings. */
+export interface AgentBtwRecord {
+  id: string;
+  question: string;
+  answer?: string;
+  status: string;
+  leafId?: string;
+  createdAt?: string | number;
+  updatedAt?: string | number;
+  error?: string;
+  followUps?: string[];
+}
 
 export function getAgentStreamEventTurnId(event: AgentStreamEvent): string | undefined {
   return "turnId" in event ? event.turnId : undefined;
@@ -783,6 +802,10 @@ export interface AgentSession {
   /** Release live runtime resources without archiving or deleting the durable native session. */
   close(): Promise<void>;
   listCommands?(): Promise<AgentSlashCommand[]>;
+  /** Ask an omp side question (btw); the answer arrives as a btw_record stream event. */
+  askBtw?(question: string): Promise<void>;
+  /** Full side-question history for this session, oldest first. */
+  listBtwHistory?(): Promise<AgentBtwRecord[]>;
   /** A returned model is the effective selection committed by this mutation.
    * Returning void means the requested selection was accepted. No status read is required. */
   setModel?(modelId: string | null): Promise<void | { model: string | null }>;

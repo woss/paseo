@@ -6,7 +6,6 @@ import {
   OmpAutoCompactionStartEventSchema,
   OmpAutoRetryEndEventSchema,
   OmpAutoRetryStartEventSchema,
-  OmpBtwRecordEventSchema,
   OmpGoalUpdatedEventSchema,
   OmpNoticeEventSchema,
   OmpRetryFallbackAppliedEventSchema,
@@ -61,12 +60,6 @@ export function mapOmpRuntimeEventToTimelineItem(event: unknown): OmpRuntimeEven
       return mapAutoCompactionStartEvent(event);
     case "auto_compaction_end":
       return mapAutoCompactionEndEvent(event);
-    case "btw_record":
-      return mapBtwRecordEvent(event);
-    case "btw_delta":
-      return { handled: true, item: null, logReason: "omp_btw_delta_unrendered" };
-    case "queue_update":
-      return { handled: true, item: null, logReason: "omp_queue_update_unrendered" };
     default:
       return { handled: false };
   }
@@ -83,36 +76,6 @@ function mapNoticeEvent(event: unknown): OmpRuntimeEventMapping {
       type: "notification",
       level: parsed.data.level,
       message: parsed.data.message,
-    },
-  };
-}
-
-function mapBtwRecordEvent(event: unknown): OmpRuntimeEventMapping {
-  const parsed = OmpBtwRecordEventSchema.safeParse(event);
-  if (!parsed.success) {
-    return { handled: true, item: null, logReason: "malformed_omp_btw_record" };
-  }
-  const record = parsed.data.record;
-  const status = record.status;
-  if (
-    status !== "complete" &&
-    status !== "error" &&
-    status !== "cancelled" &&
-    status !== "interrupted"
-  ) {
-    // Still streaming; the final record arrives in a later btw_record event.
-    return { handled: true, item: null, logReason: "omp_btw_record_running" };
-  }
-  const text =
-    status === "complete"
-      ? [record.question.trim(), record.answer?.trim()].filter(Boolean).join("\n\n")
-      : `[btw] Failed: ${record.error ?? status}`;
-  return {
-    handled: true,
-    item: {
-      type: "assistant_message",
-      text,
-      messageId: `omp-btw:${record.id}`,
     },
   };
 }

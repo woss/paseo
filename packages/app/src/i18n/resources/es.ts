@@ -246,6 +246,14 @@ export const es: TranslationResources = {
       searchPlaceholder: "Modos de búsqueda...",
       selectWithValue: "Seleccione el modo de agente ({{value}})",
     },
+    btw: {
+      title: "Preguntas laterales",
+      open: "Haz una pregunta lateral",
+      askNow: "Preguntar",
+      inputPlaceholder: "Haz una pregunta lateral…",
+      empty: "Aún no hay preguntas laterales — Usa /btw <pregunta> o pregunta abajo.",
+      running: "Pensando…",
+    },
     hints: {
       thinking: "Modo de pensamiento",
       model: "Cambiar modelo",

@@ -676,6 +676,10 @@ type WriteProjectConfigPayload = Extract<
 >["payload"];
 
 type ListCommandsPayload = ListCommandsResponse["payload"];
+type AgentBtwRecord = Extract<
+  SessionOutboundMessage,
+  { type: "agent.btw.list.response" }
+>["payload"]["records"][number];
 type ListCommandsDraftConfig = Pick<
   AgentSessionConfig,
   "provider" | "cwd" | "modeId" | "model" | "thinkingOptionId" | "featureValues" | "providerOptions"
@@ -6529,6 +6533,32 @@ export class DaemonClient {
       },
       responseType: "list_commands_response",
     });
+  }
+
+  async listBtwHistory(input: { agentId: string; requestId?: string }): Promise<AgentBtwRecord[]> {
+    const payload = await this.sendCorrelatedSessionRequest({
+      requestId: input.requestId,
+      message: {
+        type: "agent.btw.list.request",
+        agentId: input.agentId,
+      },
+      responseType: "agent.btw.list.response",
+    });
+    if (payload.error !== null) throw new Error(payload.error);
+    return payload.records;
+  }
+
+  async askBtw(input: { agentId: string; question: string; requestId?: string }): Promise<void> {
+    const payload = await this.sendCorrelatedSessionRequest({
+      requestId: input.requestId,
+      message: {
+        type: "agent.btw.ask.request",
+        agentId: input.agentId,
+        question: input.question,
+      },
+      responseType: "agent.btw.ask.response",
+    });
+    if (payload.error !== null) throw new Error(payload.error);
   }
 
   // ============================================================================

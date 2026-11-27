@@ -244,6 +244,14 @@ export const zhCN: TranslationResources = {
       searchPlaceholder: "搜索 modes...",
       selectWithValue: "选择 Agent mode（{{value}}）",
     },
+    btw: {
+      title: "侧边提问",
+      open: "提问侧边问题",
+      askNow: "提问",
+      inputPlaceholder: "输入侧边问题…",
+      empty: "还没有侧边提问 — 使用 /btw <问题>，或在下方提问。",
+      running: "思考中…",
+    },
     hints: {
       thinking: "Thinking mode",
       model: "切换 Model",

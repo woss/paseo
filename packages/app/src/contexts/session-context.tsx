@@ -33,6 +33,7 @@ import { useVoiceAudioEngineOptional, useVoiceRuntimeOptional } from "@/contexts
 import type { AudioPlaybackSource } from "@/audio";
 import {
   selectAgentTimelineState,
+  toAgentBtwRecordView,
   toDaemonServerInfo,
   useSessionStore,
 } from "@/stores/session-store";
@@ -155,6 +156,7 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
   const setPendingPermissions = useSessionStore((state) => state.setPendingPermissions);
   const updateSessionServerInfo = useSessionStore((state) => state.updateSessionServerInfo);
   const setViewedTimelineSync = useSessionStore((state) => state.setViewedTimelineSync);
+  const upsertBtwRecord = useSessionStore((state) => state.upsertBtwRecord);
 
   // Track focused agent for heartbeat
   const focusedAgentId = useSessionStore(
@@ -267,6 +269,15 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
     const onStream = (message: SessionOutboundMessage) => {
       if (message.type !== "agent_stream") return;
       const { agentId, event, timestamp, seq, epoch } = message.payload;
+      // Side-question records live in their own store collection, never in the timeline.
+      const eventType: string = event.type;
+      if (eventType === "btw_record" && "record" in event) {
+        const record = toAgentBtwRecordView(event.record);
+        if (record) {
+          upsertBtwRecord(serverId, agentId, record);
+        }
+        return;
+      }
       if (
         event.type === "turn_started" ||
         event.type === "turn_completed" ||
@@ -367,7 +378,14 @@ function SessionProviderInternal({ children, serverId, client }: SessionProvider
       setViewedTimelineSync(serverId, null);
       sync.dispose();
     };
-  }, [client, serverId, setInitializingAgents, setViewedTimelineSync, voiceRuntime]);
+  }, [
+    client,
+    serverId,
+    setInitializingAgents,
+    setViewedTimelineSync,
+    upsertBtwRecord,
+    voiceRuntime,
+  ]);
 
   useEffect(() => {
     viewedTimelineSyncRef.current?.setConnected(isConnected);

@@ -29,6 +29,7 @@ import {
   useLiveAgentModeControl,
   type AgentModeControlValue,
 } from "@/composer/agent-controls/mode-control";
+import { AgentBtwPanel } from "@/composer/agent-controls/btw-panel";
 import { AdaptiveModalSheet, type SheetHeader } from "@/components/adaptive-modal-sheet";
 import type {
   AgentOptionControl,
@@ -137,6 +138,7 @@ interface ControlledAgentControlsProps {
   isRetryingModelProvider?: boolean;
   modeControl?: AgentModeControlValue | null;
   modelSelectorServerId?: string | null;
+  btwAgentId?: string | null;
   isCompactLayout?: boolean;
 }
 
@@ -450,6 +452,7 @@ function ControlledAgentControls({
   isRetryingModelProvider = false,
   modeControl,
   modelSelectorServerId = null,
+  btwAgentId,
   isCompactLayout,
 }: ControlledAgentControlsProps) {
   const { t } = useTranslation();
@@ -680,6 +683,7 @@ function ControlledAgentControls({
             handleOpenSheet={handleOpenSheet}
             handleCloseSheet={handleCloseSheet}
             modelSelectorServerId={modelSelectorServerId}
+            btwAgentId={btwAgentId}
           />
         ) : (
           <SheetAgentControlsContent
@@ -709,6 +713,7 @@ function ControlledAgentControls({
             glyphs={layoutContextValue.glyphs}
             showLabels={presentation.showModelLabel}
             modelSelectorServerId={modelSelectorServerId}
+            btwAgentId={btwAgentId}
             canSwitchProvider={Boolean(onSelectProviderAndModel)}
           />
         )}
@@ -749,6 +754,7 @@ interface AgentControlsContentProps {
   modeControl?: AgentModeControlValue | null;
   glyphs: ToolbarGlyphs;
   modelSelectorServerId: string | null;
+  btwAgentId?: string | null;
 }
 
 interface DesktopAgentControlsContentProps extends AgentControlsContentProps {
@@ -796,6 +802,7 @@ function DesktopAgentControlsContent(props: DesktopAgentControlsContentProps) {
     handleOpenSheet,
     handleCloseSheet,
     modelSelectorServerId,
+    btwAgentId,
   } = props;
   const { action: toggleAction, keys: modelKeys } = useModelPickerShortcut(disabled);
   const modelTooltipLabel = t(getAgentControlHintKey("model"));
@@ -852,6 +859,15 @@ function DesktopAgentControlsContent(props: DesktopAgentControlsContentProps) {
       />
 
       {modeControl ? <AgentModeControl {...modeControl} onClose={onDropdownClose} /> : null}
+
+      {provider === "omp" && btwAgentId && modelSelectorServerId ? (
+        <AgentBtwPanel
+          serverId={modelSelectorServerId}
+          agentId={btwAgentId}
+          disabled={disabled}
+          onClose={onDropdownClose}
+        />
+      ) : null}
 
       {presentation.aggregateFeatures && hasFeatures ? (
         <>
@@ -938,6 +954,7 @@ function SheetAgentControlsContent(props: SheetAgentControlsContentProps) {
     glyphs,
     showLabels,
     modelSelectorServerId,
+    btwAgentId,
     canSwitchProvider,
   } = props;
 
@@ -952,6 +969,16 @@ function SheetAgentControlsContent(props: SheetAgentControlsContentProps) {
       />
 
       {modeControl ? <AgentModeControl {...modeControl} surface="sheet" /> : null}
+
+      {provider === "omp" && btwAgentId && modelSelectorServerId ? (
+        <AgentBtwPanel
+          serverId={modelSelectorServerId}
+          agentId={btwAgentId}
+          surface="sheet"
+          disabled={disabled}
+          onClose={onDropdownClose}
+        />
+      ) : null}
 
       <ComposerControls
         items={featureItems}
@@ -1295,6 +1322,7 @@ export const AgentControls = memo(function AgentControls({
             disabled={!client}
             modeControl={modeControl}
             modelSelectorServerId={serverId}
+            btwAgentId={agentId}
             isCompactLayout={isCompactLayout}
           />
         </>

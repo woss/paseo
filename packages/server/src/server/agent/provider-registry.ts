@@ -497,6 +497,8 @@ export function wrapSessionProvider(provider: AgentProvider, inner: AgentSession
     canStopRuntime: inner.canStopRuntime?.bind(inner),
     hasPendingWakeup: inner.hasPendingWakeup?.bind(inner),
     listCommands: inner.listCommands?.bind(inner),
+    askBtw: inner.askBtw?.bind(inner),
+    listBtwHistory: inner.listBtwHistory?.bind(inner),
     setModel: inner.setModel?.bind(inner),
     setThinkingOption: inner.setThinkingOption?.bind(inner),
     applyOptions: inner.applyOptions?.bind(inner),

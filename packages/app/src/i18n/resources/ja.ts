@@ -246,6 +246,14 @@ export const ja: TranslationResources = {
       searchPlaceholder: "モードを検索...",
       selectWithValue: "エージェントモードを選択（{{value}}）",
     },
+    btw: {
+      title: "サイド質問",
+      open: "サイド質問を入力",
+      askNow: "質問する",
+      inputPlaceholder: "サイド質問を入力…",
+      empty: "サイド質問はまだありません — /btw <質問> を使うか、下に入力してください。",
+      running: "考えています…",
+    },
     hints: {
       thinking: "思考モード",
       model: "モデルを変更",

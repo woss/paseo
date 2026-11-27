@@ -244,6 +244,14 @@ export const ar: TranslationResources = {
       searchPlaceholder: "أوضاع البحث...",
       selectWithValue: "حدد وضع الوكيل ({{value}})",
     },
+    btw: {
+      title: "أسئلة جانبية",
+      open: "اطرح سؤالاً جانبياً",
+      askNow: "اسأل الآن",
+      inputPlaceholder: "اطرح سؤالاً جانبياً…",
+      empty: "لا توجد أسئلة جانبية بعد — استخدم /btw <سؤال>، أو اسأل أدناه.",
+      running: "يفكر…",
+    },
     hints: {
       thinking: "وضع التفكير",
       model: "تغيير النموذج",

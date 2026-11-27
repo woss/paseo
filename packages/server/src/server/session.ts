@@ -3725,6 +3725,12 @@ export class Session {
       case "list_commands_request":
         await this.handleListCommandsRequest(msg);
         return;
+      case "agent.btw.list.request":
+        await this.handleAgentBtwListRequest(msg);
+        return;
+      case "agent.btw.ask.request":
+        await this.handleAgentBtwAskRequest(msg);
+        return;
       case "register_push_token":
         this.handleRegisterPushToken(msg.token, msg.preferences);
         return;
@@ -5770,6 +5776,91 @@ export class Session {
           error: getErrorMessage(error),
           requestId,
         },
+      });
+    }
+  }
+
+  private async handleAgentBtwListRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.btw.list.request" }>,
+  ): Promise<void> {
+    const { agentId, requestId } = msg;
+    try {
+      const existing = this.agentManager.getAgent(agentId);
+      const stored = existing ? null : await this.agentStorage.get(agentId);
+      const agent =
+        existing || (stored && !stored.archivedAt)
+          ? await ensureAgentLoaded(agentId, {
+              agentManager: this.agentManager,
+              agentStorage: this.agentStorage,
+              logger: this.sessionLogger,
+            })
+          : null;
+
+      if (agent?.session?.listBtwHistory) {
+        const records = await agent.session.listBtwHistory();
+        this.emit({
+          type: "agent.btw.list.response",
+          payload: { agentId, requestId, records, error: null },
+        });
+        return;
+      }
+
+      this.emit({
+        type: "agent.btw.list.response",
+        payload: {
+          agentId,
+          requestId,
+          records: [],
+          error: agent ? "Agent does not support side questions" : `Agent not found: ${agentId}`,
+        },
+      });
+    } catch (error) {
+      this.sessionLogger.error({ err: error, agentId }, "Failed to list side questions");
+      this.emit({
+        type: "agent.btw.list.response",
+        payload: { agentId, requestId, records: [], error: getErrorMessage(error) },
+      });
+    }
+  }
+
+  private async handleAgentBtwAskRequest(
+    msg: Extract<SessionInboundMessage, { type: "agent.btw.ask.request" }>,
+  ): Promise<void> {
+    const { agentId, requestId, question } = msg;
+    try {
+      const existing = this.agentManager.getAgent(agentId);
+      const stored = existing ? null : await this.agentStorage.get(agentId);
+      const agent =
+        existing || (stored && !stored.archivedAt)
+          ? await ensureAgentLoaded(agentId, {
+              agentManager: this.agentManager,
+              agentStorage: this.agentStorage,
+              logger: this.sessionLogger,
+            })
+          : null;
+
+      if (agent?.session?.askBtw) {
+        await agent.session.askBtw(question);
+        this.emit({
+          type: "agent.btw.ask.response",
+          payload: { agentId, requestId, error: null },
+        });
+        return;
+      }
+
+      this.emit({
+        type: "agent.btw.ask.response",
+        payload: {
+          agentId,
+          requestId,
+          error: agent ? "Agent does not support side questions" : `Agent not found: ${agentId}`,
+        },
+      });
+    } catch (error) {
+      this.sessionLogger.error({ err: error, agentId }, "Failed to ask side question");
+      this.emit({
+        type: "agent.btw.ask.response",
+        payload: { agentId, requestId, error: getErrorMessage(error) },
       });
     }
   }

@@ -832,6 +832,31 @@ export const AgentTimelineItemPayloadSchema: z.ZodType<AgentTimelineItem, unknow
   }),
 ]);
 
+export interface AgentBtwRecord {
+  id: string;
+  question: string;
+  answer?: string;
+  status: string;
+  leafId?: string;
+  createdAt?: string | number;
+  updatedAt?: string | number;
+  error?: string;
+  followUps?: string[];
+}
+
+// Flat (non-recursive) on purpose: zod-aot miscompiles recursive schemas here.
+export const AgentBtwRecordSchema = z.object({
+  id: z.string(),
+  question: z.string(),
+  answer: z.string().optional(),
+  status: z.string(),
+  leafId: z.string().optional(),
+  createdAt: z.union([z.string(), z.number()]).optional(),
+  updatedAt: z.union([z.string(), z.number()]).optional(),
+  error: z.string().optional(),
+  followUps: z.array(z.string()).optional(),
+});
+
 export const AgentStreamEventPayloadSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("thread_started"),
@@ -899,6 +924,11 @@ export const AgentStreamEventPayloadSchema = z.discriminatedUnion("type", [
         }),
       })
       .optional(),
+  }),
+  z.object({
+    type: z.literal("btw_record"),
+    provider: AgentProviderSchema,
+    record: AgentBtwRecordSchema,
   }),
 ]);
 
@@ -3313,10 +3343,42 @@ export const PushUnregisterRequestSchema = z.object({
   requestId: z.string(),
 });
 
+export const AgentBtwListRequestSchema = z.object({
+  type: z.literal("agent.btw.list.request"),
+  agentId: z.string(),
+  requestId: z.string(),
+});
+
+export const AgentBtwAskRequestSchema = z.object({
+  type: z.literal("agent.btw.ask.request"),
+  agentId: z.string(),
+  requestId: z.string(),
+  question: z.string(),
+});
+
 export const PushUnregisterResponseSchema = z.object({
   type: z.literal("push.unregister.response"),
   payload: z.object({
     requestId: z.string(),
+  }),
+});
+
+export const AgentBtwListResponseSchema = z.object({
+  type: z.literal("agent.btw.list.response"),
+  payload: z.object({
+    agentId: z.string(),
+    requestId: z.string(),
+    records: z.array(AgentBtwRecordSchema),
+    error: z.string().nullable(),
+  }),
+});
+
+export const AgentBtwAskResponseSchema = z.object({
+  type: z.literal("agent.btw.ask.response"),
+  payload: z.object({
+    agentId: z.string(),
+    requestId: z.string(),
+    error: z.string().nullable(),
   }),
 });
 
@@ -3794,6 +3856,8 @@ export const SessionInboundMessageSchema = z.discriminatedUnion("type", [
   ListCommandsRequestSchema,
   RegisterPushTokenMessageSchema,
   PushUnregisterRequestSchema,
+  AgentBtwListRequestSchema,
+  AgentBtwAskRequestSchema,
   ListTerminalsRequestSchema,
   SubscribeTerminalsRequestSchema,
   UnsubscribeTerminalsRequestSchema,
@@ -8026,6 +8090,8 @@ export const SessionOutboundMessageSchema = z.discriminatedUnion("type", [
   UsageListReportsUpdateMessageSchema,
   UsageListReportsResponseMessageSchema,
   ListCommandsResponseSchema,
+  AgentBtwListResponseSchema,
+  AgentBtwAskResponseSchema,
   ListTerminalsResponseSchema,
   TerminalsChangedSchema,
   CreateTerminalResponseSchema,
@@ -8523,6 +8589,10 @@ export type ClearAgentAttentionResponseMessage = z.infer<
 export type ClientHeartbeatMessage = z.infer<typeof ClientHeartbeatMessageSchema>;
 export type ListCommandsRequest = z.infer<typeof ListCommandsRequestSchema>;
 export type ListCommandsResponse = z.infer<typeof ListCommandsResponseSchema>;
+export type AgentBtwListRequest = z.infer<typeof AgentBtwListRequestSchema>;
+export type AgentBtwListResponse = z.infer<typeof AgentBtwListResponseSchema>;
+export type AgentBtwAskRequest = z.infer<typeof AgentBtwAskRequestSchema>;
+export type AgentBtwAskResponse = z.infer<typeof AgentBtwAskResponseSchema>;
 export type RegisterPushTokenMessage = z.infer<typeof RegisterPushTokenMessageSchema>;
 export type PushUnregisterRequest = z.infer<typeof PushUnregisterRequestSchema>;
 export type PushUnregisterResponse = z.infer<typeof PushUnregisterResponseSchema>;

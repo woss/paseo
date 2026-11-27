@@ -247,6 +247,14 @@ export const fr: TranslationResources = {
       searchPlaceholder: "Rechercher un mode…",
       selectWithValue: "Choisir le mode de l’agent ({{value}})",
     },
+    btw: {
+      title: "Questions annexes",
+      open: "Poser une question annexe",
+      askNow: "Demander",
+      inputPlaceholder: "Poser une question annexe…",
+      empty: "Aucune question annexe — Utilisez /btw <question> ou posez la vôtre ci-dessous.",
+      running: "Réflexion…",
+    },
     hints: {
       thinking: "Mode de réflexion",
       model: "Changer de modèle",

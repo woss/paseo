@@ -354,6 +354,25 @@ export function selectAgentTimelineState(
   return items.length > 0 ? { status: "painted", items } : { status: "cold" };
 }
 
+/** omp side questions (btw) for one agent, sorted by updatedAt ascending. */
+export function selectAgentBtwRecords(
+  session: SessionState | undefined,
+  agentId: string,
+): AgentBtwRecordView[] {
+  const records = session?.agentBtwRecords.get(agentId);
+  if (!records || records.size === 0) {
+    return [];
+  }
+  return [...records.values()].sort((a, b) => btwTimestamp(a) - btwTimestamp(b));
+}
+
+function btwTimestamp(record: AgentBtwRecordView): number {
+  const value = record.updatedAt ?? record.createdAt;
+  if (typeof value === "number") return value;
+  if (typeof value === "string") return Date.parse(value);
+  return 0;
+}
+
 /** Text of the loaded user messages, newest first, with back-to-back repeats collapsed. */
 export function selectAgentSentMessages(
   session: SessionState | undefined,
@@ -466,6 +485,70 @@ function updateAgentTasks(
 
 export type WorkspaceRestoreStatus = "restoring" | "failed" | "needs-host-upgrade";
 
+// omp side-question record (btw). Structurally compatible with the daemon's
+// OmpBtwRecord; kept local to avoid cross-package type imports in Metro.
+export type AgentBtwRecordStatus = "running" | "complete" | "cancelled" | "error" | "interrupted";
+
+export interface AgentBtwRecordView {
+  id: string;
+  question: string;
+  answer?: string;
+  // omp may add statuses; unknown values render as still running.
+  status: string;
+  leafId?: string;
+  createdAt?: string | number;
+  updatedAt?: string | number;
+  error?: string;
+  followUps?: string[];
+}
+
+function isAgentBtwRecordStatus(value: string | undefined): value is AgentBtwRecordStatus {
+  return (
+    value === "running" ||
+    value === "complete" ||
+    value === "cancelled" ||
+    value === "error" ||
+    value === "interrupted"
+  );
+}
+
+/**
+ * Coerces an unknown stream-event payload into an AgentBtwRecordView. Takes the
+ * payload as `unknown` rather than an AgentStreamEvent member so it compiles
+ * (and tolerates unknown event types) before the protocol union gains
+ * btw_record. Unknown status values are treated as running.
+ */
+export function toAgentBtwRecordView(value: unknown): AgentBtwRecordView | null {
+  if (typeof value !== "object" || value === null) return null;
+  const fields = new Map(Object.entries(value));
+  const readString = (key: string): string | undefined => {
+    const item = fields.get(key);
+    return typeof item === "string" ? item : undefined;
+  };
+  const readTimestamp = (key: string): string | number | undefined => {
+    const item = fields.get(key);
+    return typeof item === "string" || typeof item === "number" ? item : undefined;
+  };
+  const id = readString("id");
+  const question = readString("question");
+  if (id === undefined || question === undefined) return null;
+  const status = readString("status");
+  const followUps = fields.get("followUps");
+  return {
+    id,
+    question,
+    answer: readString("answer"),
+    status: isAgentBtwRecordStatus(status) ? status : "running",
+    leafId: readString("leafId"),
+    createdAt: readTimestamp("createdAt"),
+    updatedAt: readTimestamp("updatedAt"),
+    error: readString("error"),
+    followUps: Array.isArray(followUps)
+      ? followUps.filter((item): item is string => typeof item === "string")
+      : undefined,
+  };
+}
+
 // Per-session state
 export interface SessionState {
   serverId: string;
@@ -529,6 +612,9 @@ export interface SessionState {
     string,
     Array<{ id: string; text: string; attachments: ComposerAttachment[] }>
   >;
+
+  // omp side questions (btw), keyed by agentId then record id
+  agentBtwRecords: Map<string, Map<string, AgentBtwRecordView>>;
 }
 
 // Global store state
@@ -724,6 +810,9 @@ interface SessionStoreActions {
 
   // Agent directory (derived from agents)
   getAgentDirectory: (serverId: string) => AgentDirectoryEntry[] | undefined;
+
+  // omp side questions (btw)
+  upsertBtwRecord: (serverId: string, agentId: string, record: AgentBtwRecordView) => void;
 }
 
 type SessionStore = SessionStoreState & SessionStoreActions;
@@ -770,7 +859,22 @@ function createInitialSessionState(
     pendingPermissions: new Map(),
     fileExplorer: new Map(),
     queuedMessages: new Map(),
+    agentBtwRecords: new Map(),
   };
+}
+
+function areBtwRecordsEqual(a: AgentBtwRecordView, b: AgentBtwRecordView): boolean {
+  return (
+    a === b ||
+    (a.id === b.id &&
+      a.question === b.question &&
+      a.answer === b.answer &&
+      a.status === b.status &&
+      a.error === b.error &&
+      a.updatedAt === b.updatedAt &&
+      a.leafId === b.leafId &&
+      (a.followUps?.join("\u0000") ?? "") === (b.followUps?.join("\u0000") ?? ""))
+  );
 }
 
 function areServerCapabilitiesEqual(
@@ -2054,6 +2158,34 @@ export const useSessionStore = create<SessionStore>()(
           });
         }
         return entries;
+      },
+
+      upsertBtwRecord: (serverId, agentId, record) => {
+        set((prev) => {
+          const session = prev.sessions[serverId];
+          if (!session) {
+            return prev;
+          }
+
+          const existing = session.agentBtwRecords.get(agentId)?.get(record.id);
+          const nextRecord =
+            existing && areBtwRecordsEqual(existing, record)
+              ? existing
+              : { ...existing, ...record };
+
+          const agentRecords = new Map(session.agentBtwRecords.get(agentId) ?? []);
+          agentRecords.set(nextRecord.id, nextRecord);
+          const nextMap = new Map(session.agentBtwRecords);
+          nextMap.set(agentId, agentRecords);
+
+          return {
+            ...prev,
+            sessions: {
+              ...prev.sessions,
+              [serverId]: { ...session, agentBtwRecords: nextMap },
+            },
+          };
+        });
       },
     };
   }),

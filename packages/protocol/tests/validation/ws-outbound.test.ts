@@ -295,6 +295,36 @@ const SourceSchema = z.object({
     });
   });
 
+  it("accepts an agent_stream btw_record event", () => {
+    const envelope = {
+      type: "session",
+      message: {
+        type: "agent_stream",
+        payload: {
+          agentId: "agent-1",
+          timestamp: "2026-11-27T12:00:00.000Z",
+          event: {
+            type: "btw_record",
+            provider: "omp",
+            record: {
+              id: "btw-1",
+              question: "what changed?",
+              answer: "the composer file",
+              status: "complete",
+              createdAt: 1764600000000,
+              updatedAt: 1764600001000,
+            },
+          },
+        },
+      },
+    };
+
+    expect(validateWSOutboundMessage(envelope)).toEqual({
+      success: true,
+      data: envelope,
+    });
+  });
+
   it("preserves turn metrics on a completed turn and on its timeline row", () => {
     const metrics = [
       { label: "Model", value: "gpt-5.5" },

@@ -246,6 +246,14 @@ export const ru: TranslationResources = {
       searchPlaceholder: "Поиск режимов...",
       selectWithValue: "Выбрать режим агента ({{value}})",
     },
+    btw: {
+      title: "Боковые вопросы",
+      open: "Задать боковой вопрос",
+      askNow: "Спросить",
+      inputPlaceholder: "Задайте боковой вопрос…",
+      empty: "Боковых вопросов пока нет — Используйте /btw <вопрос> или спросите ниже.",
+      running: "Думаю…",
+    },
     hints: {
       thinking: "Режим рассуждений",
       model: "Изменить модель",

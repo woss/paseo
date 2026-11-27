@@ -242,6 +242,14 @@ export const en = {
       searchPlaceholder: "Search modes...",
       selectWithValue: "Select agent mode ({{value}})",
     },
+    btw: {
+      title: "Side questions",
+      open: "Ask a side question",
+      askNow: "Ask now",
+      inputPlaceholder: "Ask a side question…",
+      empty: "No side questions yet — Use /btw <question>, or ask below.",
+      running: "Thinking…",
+    },
     hints: {
       thinking: "Thinking mode",
       model: "Change model",

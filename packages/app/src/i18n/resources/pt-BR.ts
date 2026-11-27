@@ -245,6 +245,14 @@ export const ptBR: TranslationResources = {
       searchPlaceholder: "Buscar modos...",
       selectWithValue: "Selecionar modo do agente ({{value}})",
     },
+    btw: {
+      title: "Perguntas laterais",
+      open: "Fazer uma pergunta lateral",
+      askNow: "Perguntar",
+      inputPlaceholder: "Faça uma pergunta lateral…",
+      empty: "Nenhuma pergunta lateral ainda — Use /btw <pergunta> ou pergunte abaixo.",
+      running: "Pensando…",
+    },
     hints: {
       thinking: "Modo de raciocínio",
       model: "Alterar modelo",

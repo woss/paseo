@@ -244,6 +244,14 @@ export const ko: TranslationResources = {
       searchPlaceholder: "모드 검색...",
       selectWithValue: "에이전트 모드 선택 ({{value}})",
     },
+    btw: {
+      title: "사이드 질문",
+      open: "사이드 질문하기",
+      askNow: "묻기",
+      inputPlaceholder: "사이드 질문을 입력하세요…",
+      empty: "아직 사이드 질문이 없습니다 — /btw <질문>을 사용하거나 아래에 입력하세요.",
+      running: "생각 중…",
+    },
     hints: {
       thinking: "사고 모드",
       model: "모델 변경",

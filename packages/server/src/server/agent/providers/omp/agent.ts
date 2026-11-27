@@ -18,6 +18,7 @@ import {
   type AgentMode,
   type AgentPermissionRequest,
   type AgentPermissionResponse,
+  type AgentBtwRecord,
   type AgentProviderNotice,
   type AgentPersistenceHandle,
   type AgentPromptInput,
@@ -93,6 +94,7 @@ import type {
   OmpSessionState,
   OmpThinkingLevel,
 } from "./rpc-types.js";
+import { OmpBtwRecordEventSchema } from "./rpc-types.js";
 import {
   parseToolArgs,
   parseToolResult,
@@ -193,6 +195,18 @@ function promptResultError(result: {
 }): string | null {
   if (result.status !== "error") return null;
   return result.error?.message || "OMP rejected the prompt";
+}
+
+function btwRecordCreatedRank(record: AgentBtwRecord): number {
+  const createdAt = record.createdAt;
+  if (typeof createdAt === "number") return createdAt;
+  if (typeof createdAt === "string") {
+    const numeric = Number(createdAt);
+    if (Number.isFinite(numeric) && createdAt.trim() !== "") return numeric;
+    const parsed = Date.parse(createdAt);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
 }
 
 /** One-line summary of a zod issues array, or null when `error` is not one. */
@@ -1546,6 +1560,8 @@ export class OmpAgentSession implements AgentSession {
     return rawArgs.length > 0 ? { commandName, args: rawArgs } : { commandName };
   }
 
+  private readonly btwRecords = new Map<string, AgentBtwRecord>();
+
   private emitOmpAssistantMessage(text: string, emit: (event: AgentStreamEvent) => void): void {
     emit({
       type: "timeline",
@@ -1752,6 +1768,20 @@ export class OmpAgentSession implements AgentSession {
         emit,
       );
     }
+  }
+
+  async askBtw(question: string): Promise<void> {
+    await this.runtimeSession.btw(question);
+  }
+
+  async listBtwHistory(): Promise<AgentBtwRecord[]> {
+    const history = await this.runtimeSession.getBtwHistory();
+    for (const record of history.records ?? []) {
+      this.btwRecords.set(record.id, record);
+    }
+    return [...this.btwRecords.values()].sort(
+      (a, b) => btwRecordCreatedRank(a) - btwRecordCreatedRank(b),
+    );
   }
 
   private async executeCompactCommand(
@@ -1997,18 +2027,7 @@ export class OmpAgentSession implements AgentSession {
     if (this.handleThinkingLevelChanged(event)) {
       return true;
     }
-    if (event.type === "model_changed") {
-      void this.refreshState()
-        .then(() =>
-          this.emit({
-            type: "model_changed",
-            provider: this.provider,
-            runtimeInfo: this.runtimeInfoFromState(),
-          }),
-        )
-        .catch((error: unknown) =>
-          this.logger.debug({ err: error }, "OMP state unavailable after model change"),
-        );
+    if (this.handleModelChangedEvent(event)) {
       return true;
     }
     if (handleOmpHostToolRuntimeEvent(event, this.hostTools, this.runtimeSession, this.logger)) {
@@ -2045,22 +2064,13 @@ export class OmpAgentSession implements AgentSession {
       }
       return true;
     }
-    if (event.type === "todo_reminder") {
-      const item = mapOmpTodoReminderEvent(event);
-      if (item) {
-        this.emitTodoItem(item);
-      } else {
-        this.logger.debug({ event }, "Dropped malformed OMP todo reminder event");
-      }
+    if (this.handleTodoReminderEvent(event)) {
       return true;
     }
-    if (event.type === "available_commands_update") {
-      const commands = mapOmpAvailableCommandsUpdate(event);
-      if (commands) {
-        this.commandCache = commands;
-      } else {
-        this.logger.debug({ event }, "Dropped malformed OMP command update event");
-      }
+    if (this.handleAvailableCommandsEvent(event)) {
+      return true;
+    }
+    if (this.handleBtwRuntimeEvent(event)) {
       return true;
     }
     const mappedEvent = mapOmpRuntimeEventToTimelineItem(event);
@@ -2080,6 +2090,69 @@ export class OmpAgentSession implements AgentSession {
       );
     }
     return true;
+  }
+
+  private handleTodoReminderEvent(event: OmpRuntimeEvent): boolean {
+    if (event.type !== "todo_reminder") {
+      return false;
+    }
+    const item = mapOmpTodoReminderEvent(event);
+    if (item) {
+      this.emitTodoItem(item);
+    } else {
+      this.logger.debug({ event }, "Dropped malformed OMP todo reminder event");
+    }
+    return true;
+  }
+
+  private handleAvailableCommandsEvent(event: OmpRuntimeEvent): boolean {
+    if (event.type !== "available_commands_update") {
+      return false;
+    }
+    const commands = mapOmpAvailableCommandsUpdate(event);
+    if (commands) {
+      this.commandCache = commands;
+    } else {
+      this.logger.debug({ event }, "Dropped malformed OMP command update event");
+    }
+    return true;
+  }
+
+  private handleModelChangedEvent(event: OmpRuntimeEvent): boolean {
+    if (event.type !== "model_changed") {
+      return false;
+    }
+    void this.refreshState()
+      .then(() =>
+        this.emit({
+          type: "model_changed",
+          provider: this.provider,
+          runtimeInfo: this.runtimeInfoFromState(),
+        }),
+      )
+      .catch((error: unknown) =>
+        this.logger.debug({ err: error }, "OMP state unavailable after model change"),
+      );
+    return true;
+  }
+
+  private handleBtwRuntimeEvent(event: OmpRuntimeEvent): boolean {
+    if (event.type === "btw_record") {
+      const parsed = OmpBtwRecordEventSchema.safeParse(event);
+      if (!parsed.success) {
+        this.logger.debug({ event }, "Dropped malformed OMP btw record event");
+        return true;
+      }
+      const record: AgentBtwRecord = parsed.data.record;
+      this.btwRecords.set(record.id, record);
+      this.emit({ type: "btw_record", provider: this.provider, record });
+      return true;
+    }
+    if (event.type === "btw_delta") {
+      // omp btw_record events carry the full record; deltas are redundant here.
+      return true;
+    }
+    return false;
   }
 
   private emitActiveToolCall(toolCallId: string): boolean {
