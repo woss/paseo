@@ -92,6 +92,7 @@ function resolveAgentAutocompleteSnapshot(input: {
   cursorIndex: number;
   activeSlashCommand: SlashCommandRange | null;
   activeFileMention: FileMentionRange | null;
+  subcommandParentNames?: ReadonlySet<string>;
 }): AgentAutocompleteSnapshot {
   if (!input.input) {
     return {
@@ -105,7 +106,10 @@ function resolveAgentAutocompleteSnapshot(input: {
   const cursorIndex = input.input.selection.start;
   return {
     text,
-    slashCommand: findActiveSlashCommand({ text, cursorIndex }),
+    slashCommand: findActiveSlashCommand(
+      { text, cursorIndex },
+      { subcommandParentNames: input.subcommandParentNames },
+    ),
     fileMention: findActiveFileMention({ text, cursorIndex }),
   };
 }
@@ -263,7 +267,7 @@ function buildAutocompleteOptions(input: BuildAutocompleteOptionsInput): AgentAu
     const availableCommands: AvailableCommand[] =
       input.activeSlashCommand?.position === "inline"
         ? filterInlineSkillCommandEntries(providerCommands)
-        : rootCommands;
+        : rootCommands.concat(expandSubcommandEntries(input));
     const matches = filterAndRankCommandAutocompleteEntries(
       availableCommands,
       input.commandFilterQuery,
@@ -290,6 +294,25 @@ function buildAutocompleteOptions(input: BuildAutocompleteOptionsInput): AgentAu
   }
 
   return [];
+}
+
+function expandSubcommandEntries(input: BuildAutocompleteOptionsInput): AvailableCommand[] {
+  // Only surface subcommands once the query names the parent ("/mcp "), so the
+  // empty-query root menu does not grow by every provider subcommand.
+  if (!input.commandFilterQuery.includes(" ")) {
+    return [];
+  }
+  return input.commands.flatMap((command) =>
+    (command.subcommands ?? []).map((subcommand) => ({
+      source: "provider" as const,
+      command: {
+        name: `${command.name} ${subcommand.name}`,
+        description: subcommand.description || command.description,
+        argumentHint: subcommand.argumentHint || "",
+        kind: subcommand.kind ?? "command",
+      },
+    })),
+  );
 }
 
 function resolveAutocompleteMode(args: {
@@ -507,13 +530,33 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
     pluginClientSlashCommands = [],
   } = input;
 
+  const { isDraftContext, queryDraftConfig, canListCommands } = useMemo(
+    () => resolveDraftCommandContext(draft),
+    [draft],
+  );
+  const canLoadCommands = resolveCanLoadCommands({ serverId, agentId, isDraftContext });
+
+  // Loaded before the slash-command range so the subcommand grammar can keep the
+  // menu open across the space in "/mcp ".
+  const commandsQuery = useAutocompleteCommands({
+    serverId,
+    agentId,
+    enabled: canLoadCommands && canListCommands,
+    draftConfig: queryDraftConfig,
+  });
+  const subcommandParentNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const command of commandsQuery.commands) {
+      if (command.subcommands?.length) {
+        names.add(command.name.toLowerCase());
+      }
+    }
+    return names;
+  }, [commandsQuery.commands]);
+
   const activeSlashCommand = useMemo(
-    () =>
-      findActiveSlashCommand({
-        text: userInput,
-        cursorIndex,
-      }),
-    [cursorIndex, userInput],
+    () => findActiveSlashCommand({ text: userInput, cursorIndex }, { subcommandParentNames }),
+    [cursorIndex, userInput, subcommandParentNames],
   );
   const showCommandAutocomplete = activeSlashCommand !== null;
   const commandFilterQuery = activeSlashCommand?.query ?? "";
@@ -534,12 +577,6 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
     const timer = setTimeout(() => setDebouncedFileFilterQuery(fileFilterQuery), 180);
     return () => clearTimeout(timer);
   }, [fileFilterQuery]);
-
-  const { isDraftContext, queryDraftConfig, canListCommands } = useMemo(
-    () => resolveDraftCommandContext(draft),
-    [draft],
-  );
-  const canLoadCommands = resolveCanLoadCommands({ serverId, agentId, isDraftContext });
 
   const agentCwd = useSessionStore(
     (state) => state.sessions[serverId]?.agents?.get(agentId)?.cwd ?? "",
@@ -562,12 +599,6 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
     autocompleteCwd,
   });
 
-  const commandsQuery = useAutocompleteCommands({
-    serverId,
-    agentId,
-    enabled: mode === "command" && canLoadCommands && canListCommands,
-    draftConfig: queryDraftConfig,
-  });
   const commandsState = resolveCommandsState({
     canListCommands,
     isLoading: commandsQuery.isLoading,
@@ -695,6 +726,7 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
         cursorIndex,
         activeSlashCommand,
         activeFileMention,
+        subcommandParentNames,
       });
       const selectedIsCommand =
         selected.type === "client_command" ||
@@ -746,6 +778,7 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
       cursorIndex,
       activeFileMention,
       activeSlashCommand,
+      subcommandParentNames,
     ],
   );
 
@@ -757,10 +790,13 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
         mode === "command" &&
         event &&
         !isSameSlashCommand(
-          findActiveSlashCommand({
-            text: event.input.text,
-            cursorIndex: event.input.selection.start,
-          }),
+          findActiveSlashCommand(
+            {
+              text: event.input.text,
+              cursorIndex: event.input.selection.start,
+            },
+            { subcommandParentNames },
+          ),
           activeSlashCommand,
         )
       ) {
@@ -768,7 +804,7 @@ export function useAgentAutocomplete(input: UseAgentAutocompleteInput): AgentAut
       }
       onSelectOption(option, event?.input);
     },
-    [activeSlashCommand, mode, onSelectOption],
+    [activeSlashCommand, mode, onSelectOption, subcommandParentNames],
   );
 
   const { selectedIndex, onKeyPress } = useAutocomplete({

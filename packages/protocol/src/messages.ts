@@ -7207,12 +7207,23 @@ export const UsageListReportsResponseMessageSchema = z.object({
   payload: z.object({ requestId: z.string(), error: z.string().nullable() }),
 });
 
-const AgentSlashCommandSchema = z.object({
-  name: z.string(),
-  description: z.string(),
-  argumentHint: z.string(),
-  kind: z.enum(["command", "skill"]).optional().catch("command"),
-});
+export interface AgentSlashCommandWire {
+  name: string;
+  description: string;
+  argumentHint: string;
+  kind?: "command" | "skill";
+  subcommands?: AgentSlashCommandWire[];
+}
+
+const AgentSlashCommandSchema: z.ZodType<AgentSlashCommandWire> = z.lazy(() =>
+  z.object({
+    name: z.string(),
+    description: z.string(),
+    argumentHint: z.string(),
+    kind: z.enum(["command", "skill"]).optional().catch("command"),
+    subcommands: z.array(AgentSlashCommandSchema).optional(),
+  }),
+);
 
 export const ListCommandsResponseSchema = z.object({
   type: z.literal("list_commands_response"),

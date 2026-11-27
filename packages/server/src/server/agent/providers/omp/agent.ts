@@ -105,7 +105,7 @@ import {
 import { mapOmpAvailableCommandsUpdate, mapOmpRuntimeSlashCommands } from "./commands.js";
 import { readOmpHistoryTodoState, streamOmpHistory } from "./history.js";
 import { mapOmpTodoReminderEvent, mapOmpTodoState, mapOmpTodoToolResult } from "./todo-mapper.js";
-import { mapOmpRuntimeEventToTimelineItem } from "./event-mapper.js";
+import { formatGoalText, mapOmpRuntimeEventToTimelineItem } from "./event-mapper.js";
 import { mapOmpAdvisorMessageToToolCall } from "./advisor-message.js";
 import { handleOmpHostToolRuntimeEvent, OmpHostToolRouter } from "./host-tools.js";
 import { OmpSubagentIndex } from "./subagent-index.js";
@@ -1334,6 +1334,48 @@ export class OmpAgentSession implements AgentSession {
         },
       };
     }
+    if (commandName === "goal") {
+      return {
+        run: async ({ emit }) => {
+          await this.executeGoalCommand(parsed.args, emit);
+        },
+      };
+    }
+    if (commandName === "btw") {
+      return {
+        run: async ({ emit }) => {
+          await this.executeBtwCommand(parsed.args, emit);
+        },
+      };
+    }
+    if (commandName === "queue") {
+      return {
+        run: async ({ emit }) => {
+          await this.executeQueueCommand(parsed.args, emit);
+        },
+      };
+    }
+    if (commandName === "autoretry") {
+      return {
+        run: async ({ emit }) => {
+          await this.executeAutoRetryCommand(parsed.args, emit);
+        },
+      };
+    }
+    if (commandName === "fork") {
+      return {
+        run: async ({ emit }) => {
+          await this.executeForkCommand(parsed.args, emit);
+        },
+      };
+    }
+    if (commandName === "export-html") {
+      return {
+        run: async ({ emit }) => {
+          await this.executeExportHtmlCommand(parsed.args, emit);
+        },
+      };
+    }
     return null;
   }
 
@@ -1482,6 +1524,209 @@ export class OmpAgentSession implements AgentSession {
     const rawArgs =
       firstWhitespaceIdx === -1 ? "" : withoutPrefix.slice(firstWhitespaceIdx + 1).trim();
     return rawArgs.length > 0 ? { commandName, args: rawArgs } : { commandName };
+  }
+
+  private emitOmpAssistantMessage(text: string, emit: (event: AgentStreamEvent) => void): void {
+    emit({
+      type: "timeline",
+      provider: this.provider,
+      item: { type: "assistant_message", text },
+    });
+  }
+
+  private ompErrorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  private async executeGoalCommand(
+    args: string | undefined,
+    emit: (event: AgentStreamEvent) => void,
+  ): Promise<void> {
+    const text = args?.trim() ?? "";
+    let op: "get" | "create" | "resume" | "pause" | "drop";
+    if (text === "" || text === "status") {
+      op = "get";
+    } else if (text === "pause" || text === "resume") {
+      op = text;
+    } else if (text === "clear" || text === "drop") {
+      op = "drop";
+    } else {
+      op = "create";
+    }
+    try {
+      const result = await this.runtimeSession.goal(op, op === "create" ? text : undefined);
+      const goal = result.goal ?? null;
+      let detail: string;
+      if (goal) {
+        detail = formatGoalText(
+          { type: "goal_updated", goal: result.goal, state: result.state },
+          goal,
+        );
+      } else if (op === "drop") {
+        detail = "Goal cleared.";
+      } else {
+        detail = "No goal is set.";
+      }
+      this.emitOmpAssistantMessage(detail, emit);
+    } catch (error) {
+      this.emitOmpAssistantMessage(
+        `[Error] Failed to update goal: ${this.ompErrorMessage(error)}`,
+        emit,
+      );
+    }
+  }
+
+  private async executeBtwCommand(
+    args: string | undefined,
+    emit: (event: AgentStreamEvent) => void,
+  ): Promise<void> {
+    const question = args?.trim();
+    if (!question) {
+      this.emitOmpAssistantMessage("[Error] Usage: /btw <question>", emit);
+      return;
+    }
+    try {
+      const result = await this.runtimeSession.btw(question);
+      // Final answers (complete/failed) are rendered by the btw_record event
+      // handler; only acknowledge pending work here.
+      if (!result.record || result.record.status === "running") {
+        this.emitOmpAssistantMessage("btw accepted; the answer will arrive in the timeline.", emit);
+      }
+    } catch (error) {
+      this.emitOmpAssistantMessage(`[Error] btw failed: ${this.ompErrorMessage(error)}`, emit);
+    }
+  }
+
+  private async executeQueueCommand(
+    args: string | undefined,
+    emit: (event: AgentStreamEvent) => void,
+  ): Promise<void> {
+    const text = args?.trim() ?? "";
+    try {
+      if (text === "clear") {
+        const restored = await this.runtimeSession.abortAndRestoreQueue();
+        const restoredMessages = [...(restored.steering ?? []), ...(restored.followUp ?? [])].map(
+          (entry) => entry.text,
+        );
+        const lines = ["Queue cleared; the active run was aborted."];
+        if (restoredMessages.length > 0) {
+          lines.push(
+            "Restored queued messages:",
+            ...restoredMessages.map((message) => `- ${message}`),
+          );
+        }
+        if (restored.imagesDropped) {
+          lines.push(`${restored.imagesDropped} queued image(s) were dropped.`);
+        }
+        if (restored.truncated) {
+          lines.push("Some queued messages were truncated.");
+        }
+        this.emitOmpAssistantMessage(lines.join("\n"), emit);
+        return;
+      }
+      if (text.startsWith("remove ")) {
+        const message = text.slice("remove ".length).trim();
+        if (!message) {
+          this.emitOmpAssistantMessage("[Error] Usage: /queue remove <text>", emit);
+          return;
+        }
+        let result;
+        try {
+          result = await this.runtimeSession.removeQueuedMessage(message, "steering");
+        } catch {
+          result = await this.runtimeSession.removeQueuedMessage(message, "followUp");
+        }
+        this.emitOmpAssistantMessage(
+          result.removed ? `Removed from queue: ${message}` : `Not found in the queue: ${message}`,
+          emit,
+        );
+        return;
+      }
+      if (text.startsWith("promote ")) {
+        const message = text.slice("promote ".length).trim();
+        if (!message) {
+          this.emitOmpAssistantMessage("[Error] Usage: /queue promote <text>", emit);
+          return;
+        }
+        const result = await this.runtimeSession.promoteQueuedMessage(message);
+        this.emitOmpAssistantMessage(
+          result.promoted
+            ? `Promoted to run next: ${message}`
+            : `Not found in the queue: ${message}`,
+          emit,
+        );
+        return;
+      }
+      this.emitOmpAssistantMessage(
+        "[Error] Usage: /queue remove <text>|promote <text>|clear",
+        emit,
+      );
+    } catch (error) {
+      this.emitOmpAssistantMessage(
+        `[Error] Failed to update queue: ${this.ompErrorMessage(error)}`,
+        emit,
+      );
+    }
+  }
+
+  private async executeAutoRetryCommand(
+    args: string | undefined,
+    emit: (event: AgentStreamEvent) => void,
+  ): Promise<void> {
+    const mode = args?.trim().toLowerCase();
+    try {
+      if (mode === "on" || mode === "off") {
+        await this.runtimeSession.setAutoRetry(mode === "on");
+        this.emitOmpAssistantMessage(`Auto-retry ${mode === "on" ? "enabled" : "disabled"}.`, emit);
+        return;
+      }
+      if (mode === "abort") {
+        await this.runtimeSession.abortRetry();
+        this.emitOmpAssistantMessage("Retry aborted.", emit);
+        return;
+      }
+      this.emitOmpAssistantMessage("[Error] Usage: /autoretry [on|off|abort]", emit);
+    } catch (error) {
+      this.emitOmpAssistantMessage(
+        `[Error] Failed to update auto-retry: ${this.ompErrorMessage(error)}`,
+        emit,
+      );
+    }
+  }
+
+  private async executeForkCommand(
+    args: string | undefined,
+    emit: (event: AgentStreamEvent) => void,
+  ): Promise<void> {
+    const entryId = args?.trim() || undefined;
+    try {
+      await this.runtimeSession.forkFrom(entryId);
+      this.emitOmpAssistantMessage(
+        entryId ? `Forked session from ${entryId}.` : "Forked the session at the latest message.",
+        emit,
+      );
+    } catch (error) {
+      this.emitOmpAssistantMessage(`[Error] Failed to fork: ${this.ompErrorMessage(error)}`, emit);
+    }
+  }
+
+  private async executeExportHtmlCommand(
+    args: string | undefined,
+    emit: (event: AgentStreamEvent) => void,
+  ): Promise<void> {
+    const outputPath = args?.trim() || undefined;
+    try {
+      const result = await this.runtimeSession.exportHtml(outputPath);
+      this.emitOmpAssistantMessage(
+        result.path ? `Exported session HTML to ${result.path}.` : "Exported session HTML.",
+        emit,
+      );
+    } catch (error) {
+      this.emitOmpAssistantMessage(
+        `[Error] Failed to export: ${this.ompErrorMessage(error)}`,
+        emit,
+      );
+    }
   }
 
   private async executeCompactCommand(

@@ -18,6 +18,7 @@ export interface AgentSlashCommand {
   description: string;
   argumentHint: string;
   kind?: string;
+  subcommands?: AgentSlashCommand[];
 }
 
 export type DraftCommandConfig = AgentCommandsDraftConfig;

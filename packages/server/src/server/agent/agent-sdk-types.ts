@@ -584,6 +584,7 @@ export interface AgentSlashCommand {
   description: string;
   argumentHint: string;
   kind?: AgentSlashCommandKind;
+  subcommands?: AgentSlashCommand[];
 }
 
 export interface ListImportableSessionsOptions {

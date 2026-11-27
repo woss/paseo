@@ -38,6 +38,11 @@ interface FindActiveSlashCommandInput {
   cursorIndex: number;
 }
 
+interface FindActiveSlashCommandOptions {
+  /** Parent command names (lowercased) that own subcommands, e.g. "mcp". */
+  subcommandParentNames?: ReadonlySet<string>;
+}
+
 interface ApplySlashCommandReplacementInput {
   text: string;
   command: SlashCommandRange;
@@ -96,8 +101,30 @@ export function filterInlineSkillCommandEntries<TEntry extends CommandAutocomple
 
 const INVALID_SLASH_COMMAND_QUERY_CHARS = /[/\s\n\r\t"']/;
 
+/**
+ * Subcommand queries look like "/mcp ad": one space after a parent command that owns
+ * subcommands, then a partial subcommand word (possibly empty).
+ */
+function matchesSubcommandQuery(
+  query: string,
+  subcommandParentNames: ReadonlySet<string> | undefined,
+): boolean {
+  const spaceIndex = query.indexOf(" ");
+  if (spaceIndex < 0 || query.indexOf(" ", spaceIndex + 1) >= 0) {
+    return false;
+  }
+  if (!subcommandParentNames || subcommandParentNames.size === 0) {
+    return false;
+  }
+  if (!subcommandParentNames.has(query.slice(0, spaceIndex).toLowerCase())) {
+    return false;
+  }
+  return !INVALID_SLASH_COMMAND_QUERY_CHARS.test(query.slice(spaceIndex + 1));
+}
+
 export function findActiveSlashCommand(
   input: FindActiveSlashCommandInput,
+  options?: FindActiveSlashCommandOptions,
 ): SlashCommandRange | null {
   const clampedCursor = Math.max(0, Math.min(input.cursorIndex, input.text.length));
   const beforeCursor = input.text.slice(0, clampedCursor);
@@ -113,7 +140,10 @@ export function findActiveSlashCommand(
     }
 
     const query = beforeCursor.slice(slashIndex + 1);
-    if (INVALID_SLASH_COMMAND_QUERY_CHARS.test(query)) {
+    if (
+      INVALID_SLASH_COMMAND_QUERY_CHARS.test(query) &&
+      !matchesSubcommandQuery(query, options?.subcommandParentNames)
+    ) {
       continue;
     }
 
