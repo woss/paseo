@@ -165,6 +165,41 @@ const SourceSchema = z.object({
     ).toBe(true);
   });
 
+  it("accepts list_commands_response commands with one-level subcommands", () => {
+    // Regression: the recursive z.lazy schema zod-aot-compiled subcommands into a
+    // call of the top-level message validator, so any command carrying
+    // subcommands failed list_commands_response validation.
+    const envelope = {
+      type: "session",
+      message: {
+        type: "list_commands_response",
+        payload: {
+          agentId: "agent-1",
+          requestId: "req-1",
+          error: null,
+          commands: [
+            {
+              name: "mcp",
+              description: "Manage MCP servers",
+              argumentHint: "<subcommand>",
+              subcommands: [
+                {
+                  name: "add",
+                  description: "Add a server",
+                  argumentHint: "<name>",
+                  kind: "command",
+                },
+                { name: "list", description: "List servers", argumentHint: "" },
+              ],
+            },
+            { name: "dirs", description: "List directories", argumentHint: "" },
+          ],
+        },
+      },
+    };
+    expect(validateWSOutboundMessage(envelope).success).toBe(true);
+  });
+
   it("accepts a compact provider snapshot envelope", () => {
     const envelope = {
       type: "session",

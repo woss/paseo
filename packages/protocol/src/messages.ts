@@ -7207,23 +7207,39 @@ export const UsageListReportsResponseMessageSchema = z.object({
   payload: z.object({ requestId: z.string(), error: z.string().nullable() }),
 });
 
+export interface AgentSlashSubcommandWire {
+  name: string;
+  description?: string;
+  argumentHint?: string;
+  kind?: "command" | "skill";
+}
+
 export interface AgentSlashCommandWire {
   name: string;
   description: string;
   argumentHint: string;
   kind?: "command" | "skill";
-  subcommands?: AgentSlashCommandWire[];
+  // One level: zod-aot miscompiles recursive schemas into calls to the top-level
+  // message validator, so subcommands must not recurse here (OMP sends one level).
+  subcommands?: AgentSlashSubcommandWire[];
 }
 
-const AgentSlashCommandSchema: z.ZodType<AgentSlashCommandWire> = z.lazy(() =>
-  z.object({
-    name: z.string(),
-    description: z.string(),
-    argumentHint: z.string(),
-    kind: z.enum(["command", "skill"]).optional().catch("command"),
-    subcommands: z.array(AgentSlashCommandSchema).optional(),
-  }),
-);
+const AgentSlashCommandSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  argumentHint: z.string(),
+  kind: z.enum(["command", "skill"]).optional().catch("command"),
+  subcommands: z
+    .array(
+      z.object({
+        name: z.string(),
+        description: z.string().optional(),
+        argumentHint: z.string().optional(),
+        kind: z.enum(["command", "skill"]).optional(),
+      }),
+    )
+    .optional(),
+});
 
 export const ListCommandsResponseSchema = z.object({
   type: z.literal("list_commands_response"),
