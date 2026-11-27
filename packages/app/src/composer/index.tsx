@@ -316,6 +316,7 @@ interface RenderLeftContentArgs {
   agentControls: DraftAgentControlsProps | undefined;
   agentId: string;
   serverId: string;
+  workspaceId: string | null;
   focusInput: () => void;
   isCompactLayout: boolean;
   showAgentControls: boolean;
@@ -323,7 +324,15 @@ interface RenderLeftContentArgs {
 }
 
 function renderLeftContent(args: RenderLeftContentArgs): ReactElement | null {
-  const { agentControls, agentId, serverId, focusInput, isCompactLayout, showToolbar } = args;
+  const {
+    agentControls,
+    agentId,
+    serverId,
+    workspaceId,
+    focusInput,
+    isCompactLayout,
+    showToolbar,
+  } = args;
   if (!args.showAgentControls) return null;
   if (resolveAgentControlsMode(agentControls) === "draft" && agentControls) {
     return (
@@ -340,6 +349,7 @@ function renderLeftContent(args: RenderLeftContentArgs): ReactElement | null {
     <AgentControls
       agentId={agentId}
       serverId={serverId}
+      workspaceId={workspaceId ?? null}
       onDropdownClose={focusInput}
       isCompactLayout={isCompactLayout}
       showToolbar={showToolbar}
@@ -2367,6 +2377,7 @@ function ComposerContentImpl({
       agentControls,
       agentId,
       serverId,
+      workspaceId: workspaceId ?? null,
       focusInput,
       isCompactLayout,
       showAgentControls: mode.showAgentControls,
@@ -2384,6 +2395,7 @@ function ComposerContentImpl({
     isFullscreen,
     mode.showAgentControls,
     serverId,
+    workspaceId,
   ]);
 
   const handleAttachButtonRef = useCallback((node: View | null) => {

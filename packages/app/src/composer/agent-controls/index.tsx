@@ -119,8 +119,139 @@ interface AgentControlOption {
 const EMPTY_AGENT_PROVIDER_DEFINITIONS: AgentProviderDefinition[] = [];
 const EMPTY_OPTIONS: ProviderOptions = {};
 
+/**
+ * Opens the agent's Side-questions pane: the Explorer dock pane when the workspace is split,
+ * the main pane otherwise. The workspace key comes from the workspace context, not the agent
+ * record — draft records have no workspaceId, which would silently no-op the open.
+ */
+function useOpenBtwPanel(
+  modelSelectorServerId: string | null | undefined,
+  btwAgentId: string | null | undefined,
+  workspaceId: string | null | undefined,
+) {
+  return useCallback(() => {
+    // TEMP-DIAGNOSTIC: identifies which guard swallows the press in packaged builds.
+    console.warn("[btw] open requested", {
+      modelSelectorServerId,
+      btwAgentId,
+      workspaceId,
+    });
+    if (!btwAgentId || !modelSelectorServerId || !workspaceId) {
+      console.warn("[btw] blocked: empty guard value");
+      return;
+    }
+    const workspaceKey = buildWorkspaceTabPersistenceKey({
+      serverId: modelSelectorServerId,
+      workspaceId,
+    });
+    if (!workspaceKey) {
+      console.warn("[btw] blocked: no workspaceKey");
+      return;
+    }
+    const layoutStore = useWorkspaceLayoutStore.getState();
+    const explorerPaneId = selectExplorerSidebarPaneId(layoutStore, workspaceKey);
+    const tabId = layoutStore.openTab({
+      workspaceKey,
+      target: { kind: "btw", agentId: btwAgentId },
+      intent: "reveal",
+      placement: explorerPaneId ? { mode: "prefer", paneId: explorerPaneId } : undefined,
+    });
+    console.warn("[btw] openTab result", { tabId, explorerPaneId });
+  }, [btwAgentId, modelSelectorServerId, workspaceId]);
+}
+
+function toFeatureControls(optionControls: ComposerOptionControls | undefined) {
+  return (optionControls?.controls ?? []).map((control) => {
+    if (control.type === "toggle") return { type: "toggle" as const };
+    if (control.desktopTrigger === "icon") return { type: "select" as const, label: null };
+    const selected = readSelectOption(control, optionControls?.options ?? {});
+    const choice = control.choices.find((candidate) => candidate.value === selected);
+    return {
+      type: "select" as const,
+      label: choice?.label ?? control.label,
+    };
+  });
+}
+
+function toThinkingPicker(input: {
+  canSelectThinking: boolean;
+  options: AgentControlOption[] | undefined;
+  selectedThinkingOptionId: string | undefined;
+  onSelectThinkingOption?: (thinkingOptionId: string) => void;
+  displayThinking: string | null | undefined;
+}) {
+  if (!input.canSelectThinking || !input.onSelectThinkingOption) {
+    return null;
+  }
+  return {
+    options: input.options ?? [],
+    selectedId: input.selectedThinkingOptionId,
+    onSelect: input.onSelectThinkingOption,
+    displayLabel: input.displayThinking ?? "",
+  };
+}
+
+function isSet<T>(value: T | null | undefined): value is T {
+  return value !== null && value !== undefined;
+}
+
+/**
+ * Tracks the toolbar's measured width and folds the density when the budget shrinks. Folding
+ * swaps the toolbar controls for the model sheet and back, so `onFold` must close whatever menu
+ * or sheet belonged to controls that are gone.
+ */
+function useFoldedToolbarDensity(input: {
+  controls: Parameters<typeof resolveComposerControlDensity>[0]["controls"];
+  geometry: Parameters<typeof resolveComposerControlDensity>[0]["geometry"];
+  minimumDensity: ComposerControlDensity;
+  onFold: () => void;
+}) {
+  const { controls, geometry, minimumDensity, onFold } = input;
+  const [density, setDensity] = useState<ComposerControlDensity>(minimumDensity);
+  const densityRef = useRef<ComposerControlDensity>(minimumDensity);
+  const availableWidthRef = useRef(0);
+
+  const updateDensityForWidth = useCallback(
+    (availableWidth: number) => {
+      const nextDensity = resolveComposerControlDensity({
+        availableWidth,
+        currentDensity: densityRef.current,
+        controls,
+        geometry,
+        minimumDensity,
+      });
+      if (nextDensity === densityRef.current) return;
+      if (densityFolds(nextDensity) !== densityFolds(densityRef.current)) {
+        onFold();
+      }
+      densityRef.current = nextDensity;
+      setDensity(nextDensity);
+    },
+    [controls, geometry, minimumDensity, onFold],
+  );
+
+  const handleLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const availableWidth = readMeasuredWidth(event);
+      if (availableWidth === null) return;
+      availableWidthRef.current = availableWidth;
+      updateDensityForWidth(availableWidth);
+    },
+    [updateDensityForWidth],
+  );
+
+  useEffect(() => {
+    if (availableWidthRef.current > 0) {
+      updateDensityForWidth(availableWidthRef.current);
+    }
+  }, [updateDensityForWidth]);
+
+  return { density, handleLayout };
+}
+
 interface ControlledAgentControlsProps {
   provider: string;
+  workspaceId?: string | null;
   modelOptions?: AgentControlOption[];
   selectedModelId?: string;
   onSelectModel?: (modelId: string) => void;
@@ -189,6 +320,7 @@ interface AgentControlsProps {
   showToolbar: boolean;
   agentId: string;
   serverId: string;
+  workspaceId?: string | null;
   onDropdownClose?: () => void;
   isCompactLayout?: boolean;
 }
@@ -457,6 +589,7 @@ function ControlledAgentControls({
   isRetryingModelProvider = false,
   modeControl,
   modelSelectorServerId = null,
+  workspaceId = null,
   btwAgentId,
   isCompactLayout,
 }: ControlledAgentControlsProps) {
@@ -473,10 +606,6 @@ function ControlledAgentControls({
   // A compact composer always folds its controls into the model sheet; the width budget only
   // decides whether the model keeps its label.
   const minimumDensity: ComposerControlDensity = isCompact ? "compact" : "full";
-  const initialDensity = minimumDensity;
-  const [density, setDensity] = useState<ComposerControlDensity>(initialDensity);
-  const densityRef = useRef<ComposerControlDensity>(initialDensity);
-  const availableWidthRef = useRef(0);
 
   const canSelectModel = Boolean(onSelectModel);
   const canSelectThinking = Boolean(
@@ -499,34 +628,31 @@ function ControlledAgentControls({
     canSelectModel,
     thinkingOptions,
     controls: optionControls?.controls,
-    hasMode: modeControl !== null && modeControl !== undefined,
+    hasMode: isSet(modeControl),
     pluginItemCount,
   });
-  const featureControls = useMemo(
-    () =>
-      (optionControls?.controls ?? []).map((control) => {
-        if (control.type === "toggle") return { type: "toggle" as const };
-        if (control.desktopTrigger === "icon") return { type: "select" as const, label: null };
-        const selected = readSelectOption(control, optionControls?.options ?? {});
-        const choice = control.choices.find((candidate) => candidate.value === selected);
-        return {
-          type: "select" as const,
-          label: choice?.label ?? control.label,
-        };
-      }),
-    [optionControls],
-  );
+  const featureControls = useMemo(() => toFeatureControls(optionControls), [optionControls]);
   const controlPresence = useMemo(
     () => ({
       hasModel: canSelectModel,
       hasThinking: canSelectThinking,
-      hasMode: modeControl !== null && modeControl !== undefined,
+      hasMode: isSet(modeControl),
       features: featureControls,
       pluginItemsWidth,
       fontScale,
     }),
     [canSelectModel, canSelectThinking, featureControls, fontScale, modeControl, pluginItemsWidth],
   );
+  const clearOpenOverlays = useCallback(() => {
+    setOpenSelector(null);
+    setActiveSheet(null);
+  }, []);
+  const { density, handleLayout } = useFoldedToolbarDensity({
+    controls: controlPresence,
+    geometry: toolbarGeometry,
+    minimumDensity,
+    onFold: clearOpenOverlays,
+  });
   const presentation = useMemo(() => resolveComposerControlPresentation(density), [density]);
   const layoutContextValue = useMemo(
     () => ({
@@ -536,44 +662,6 @@ function ControlledAgentControls({
     [presentation, toolbarGeometry],
   );
 
-  const updateDensityForWidth = useCallback(
-    (availableWidth: number) => {
-      const nextDensity = resolveComposerControlDensity({
-        availableWidth,
-        currentDensity: densityRef.current,
-        controls: controlPresence,
-        geometry: toolbarGeometry,
-        minimumDensity,
-      });
-      if (nextDensity === densityRef.current) return;
-      // Folding swaps the toolbar controls for the model sheet and back, so whatever menu or
-      // sheet was open belonged to controls that are gone.
-      if (densityFolds(nextDensity) !== densityFolds(densityRef.current)) {
-        setOpenSelector(null);
-        setActiveSheet(null);
-      }
-      densityRef.current = nextDensity;
-      setDensity(nextDensity);
-    },
-    [controlPresence, minimumDensity, toolbarGeometry],
-  );
-
-  const handleLayout = useCallback(
-    (event: LayoutChangeEvent) => {
-      const availableWidth = readMeasuredWidth(event);
-      if (availableWidth === null) return;
-      availableWidthRef.current = availableWidth;
-      updateDensityForWidth(availableWidth);
-    },
-    [updateDensityForWidth],
-  );
-
-  useEffect(() => {
-    if (availableWidthRef.current > 0) {
-      updateDensityForWidth(availableWidthRef.current);
-    }
-  }, [updateDensityForWidth]);
-
   const fallbackModelSelectorProviders = useMemo(
     () => buildFallbackModelSelectorProviders(provider, modelOptions),
     [modelOptions, provider],
@@ -582,14 +670,13 @@ function ControlledAgentControls({
 
   const thinking = useMemo(
     () =>
-      canSelectThinking && onSelectThinkingOption
-        ? {
-            options: formattedThinkingOptions,
-            selectedId: selectedThinkingOptionId,
-            onSelect: onSelectThinkingOption,
-            displayLabel: displayThinking,
-          }
-        : null,
+      toThinkingPicker({
+        canSelectThinking,
+        options: formattedThinkingOptions,
+        selectedThinkingOptionId,
+        onSelectThinkingOption,
+        displayThinking,
+      }),
     [
       canSelectThinking,
       displayThinking,
@@ -659,6 +746,7 @@ function ControlledAgentControls({
         {!presentation.foldControls ? (
           <DesktopAgentControlsContent
             provider={provider}
+            workspaceId={workspaceId}
             selectedModelId={selectedModelId}
             thinkingItems={items.thinking}
             effortKeys={effortKeys}
@@ -693,6 +781,7 @@ function ControlledAgentControls({
         ) : (
           <SheetAgentControlsContent
             provider={provider}
+            workspaceId={workspaceId}
             selectedModelId={selectedModelId}
             thinkingItems={items.thinking}
             effortKeys={effortKeys}
@@ -737,6 +826,7 @@ function ControlledAgentControls({
 
 interface AgentControlsContentProps {
   provider: string;
+  workspaceId?: string | null;
   selectedModelId?: string;
   thinkingItems: ComposerControlItem[];
   effortKeys: ReturnType<typeof useShortcutKeys>;
@@ -778,6 +868,7 @@ function DesktopAgentControlsContent(props: DesktopAgentControlsContentProps) {
   const { t } = useTranslation();
   const {
     provider,
+    workspaceId,
     selectedModelId,
     thinkingItems,
     effortKeys,
@@ -810,29 +901,7 @@ function DesktopAgentControlsContent(props: DesktopAgentControlsContentProps) {
     btwAgentId,
   } = props;
   const { action: toggleAction, keys: modelKeys } = useModelPickerShortcut(disabled);
-  const handleOpenBtwPanel = useCallback(() => {
-    if (!btwAgentId || !modelSelectorServerId) {
-      return;
-    }
-    const agent = useSessionStore
-      .getState()
-      .sessions[modelSelectorServerId]?.agents.get(btwAgentId);
-    const workspaceId = agent?.workspaceId;
-    const workspaceKey = workspaceId
-      ? buildWorkspaceTabPersistenceKey({ serverId: modelSelectorServerId, workspaceId })
-      : null;
-    if (!workspaceKey) {
-      return;
-    }
-    const layoutStore = useWorkspaceLayoutStore.getState();
-    const explorerPaneId = selectExplorerSidebarPaneId(layoutStore, workspaceKey);
-    layoutStore.openTab({
-      workspaceKey,
-      target: { kind: "btw", agentId: btwAgentId },
-      intent: "reveal",
-      placement: explorerPaneId ? { mode: "prefer", paneId: explorerPaneId } : undefined,
-    });
-  }, [btwAgentId, modelSelectorServerId]);
+  const handleOpenBtwPanel = useOpenBtwPanel(modelSelectorServerId, btwAgentId, workspaceId);
   const modelTooltipLabel = t(getAgentControlHintKey("model"));
   const modelToolbar = useMemo(
     () => ({
@@ -888,7 +957,7 @@ function DesktopAgentControlsContent(props: DesktopAgentControlsContentProps) {
 
       {modeControl ? <AgentModeControl {...modeControl} onClose={onDropdownClose} /> : null}
 
-      {provider === "omp" && btwAgentId && modelSelectorServerId ? (
+      {btwAgentId && modelSelectorServerId ? (
         <AgentControlTrigger
           icon={MessageCircleQuestionMark}
           surface="toolbar"
@@ -963,6 +1032,7 @@ function SheetAgentControlsContent(props: SheetAgentControlsContentProps) {
   const sheetBridge = useComposerSheetBridge();
   const {
     provider,
+    workspaceId,
     selectedModelId,
     thinkingItems,
     effortKeys,
@@ -991,30 +1061,7 @@ function SheetAgentControlsContent(props: SheetAgentControlsContentProps) {
     btwAgentId,
     canSwitchProvider,
   } = props;
-
-  const handleOpenBtwPanel = useCallback(() => {
-    if (!btwAgentId || !modelSelectorServerId) {
-      return;
-    }
-    const agent = useSessionStore
-      .getState()
-      .sessions[modelSelectorServerId]?.agents.get(btwAgentId);
-    const workspaceId = agent?.workspaceId;
-    const workspaceKey = workspaceId
-      ? buildWorkspaceTabPersistenceKey({ serverId: modelSelectorServerId, workspaceId })
-      : null;
-    if (!workspaceKey) {
-      return;
-    }
-    const layoutStore = useWorkspaceLayoutStore.getState();
-    const explorerPaneId = selectExplorerSidebarPaneId(layoutStore, workspaceKey);
-    layoutStore.openTab({
-      workspaceKey,
-      target: { kind: "btw", agentId: btwAgentId },
-      intent: "reveal",
-      placement: explorerPaneId ? { mode: "prefer", paneId: explorerPaneId } : undefined,
-    });
-  }, [btwAgentId, modelSelectorServerId]);
+  const handleOpenBtwPanel = useOpenBtwPanel(modelSelectorServerId, btwAgentId, workspaceId);
 
   const sheetControls = (
     <View style={styles.combinedSheetControls} testID="agent-controls-combined-sheet-controls">
@@ -1028,7 +1075,7 @@ function SheetAgentControlsContent(props: SheetAgentControlsContentProps) {
 
       {modeControl ? <AgentModeControl {...modeControl} surface="sheet" /> : null}
 
-      {provider === "omp" && btwAgentId && modelSelectorServerId ? (
+      {btwAgentId && modelSelectorServerId ? (
         <AgentControlTrigger
           icon={MessageCircleQuestionMark}
           surface="sheet"
@@ -1099,6 +1146,7 @@ export const AgentControls = memo(function AgentControls({
   showToolbar,
   agentId,
   serverId,
+  workspaceId,
   onDropdownClose,
   isCompactLayout,
 }: AgentControlsProps) {
@@ -1363,6 +1411,7 @@ export const AgentControls = memo(function AgentControls({
           {profileEditor.element}
           <ControlledAgentControls
             provider={agent.provider}
+            workspaceId={workspaceId}
             modelSelectorProviders={agentModelSelectorProviders}
             modelOptions={modelOptions}
             selectedModelId={modelSelection.activeModelId ?? undefined}
