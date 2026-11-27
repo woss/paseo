@@ -29,7 +29,10 @@ import {
   useLiveAgentModeControl,
   type AgentModeControlValue,
 } from "@/composer/agent-controls/mode-control";
-import { openWorkspaceTargetBeside } from "@/workspace-tabs/open-beside";
+import {
+  selectExplorerSidebarPaneId,
+  useWorkspaceLayoutStore,
+} from "@/stores/workspace-layout-store";
 import { AgentControlTrigger } from "@/composer/agent-controls/control";
 import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
 import { AdaptiveModalSheet, type SheetHeader } from "@/components/adaptive-modal-sheet";
@@ -814,14 +817,20 @@ function DesktopAgentControlsContent(props: DesktopAgentControlsContentProps) {
     const agent = useSessionStore
       .getState()
       .sessions[modelSelectorServerId]?.agents.get(btwAgentId);
-    openWorkspaceTargetBeside({
-      workspaceKey: agent?.workspaceId
-        ? buildWorkspaceTabPersistenceKey({
-            serverId: modelSelectorServerId,
-            workspaceId: agent.workspaceId,
-          })
-        : null,
+    const workspaceId = agent?.workspaceId;
+    const workspaceKey = workspaceId
+      ? buildWorkspaceTabPersistenceKey({ serverId: modelSelectorServerId, workspaceId })
+      : null;
+    if (!workspaceKey) {
+      return;
+    }
+    const layoutStore = useWorkspaceLayoutStore.getState();
+    const explorerPaneId = selectExplorerSidebarPaneId(layoutStore, workspaceKey);
+    layoutStore.openTab({
+      workspaceKey,
       target: { kind: "btw", agentId: btwAgentId },
+      intent: "reveal",
+      placement: explorerPaneId ? { mode: "prefer", paneId: explorerPaneId } : undefined,
     });
   }, [btwAgentId, modelSelectorServerId]);
   const modelTooltipLabel = t(getAgentControlHintKey("model"));
@@ -990,14 +999,20 @@ function SheetAgentControlsContent(props: SheetAgentControlsContentProps) {
     const agent = useSessionStore
       .getState()
       .sessions[modelSelectorServerId]?.agents.get(btwAgentId);
-    openWorkspaceTargetBeside({
-      workspaceKey: agent?.workspaceId
-        ? buildWorkspaceTabPersistenceKey({
-            serverId: modelSelectorServerId,
-            workspaceId: agent.workspaceId,
-          })
-        : null,
+    const workspaceId = agent?.workspaceId;
+    const workspaceKey = workspaceId
+      ? buildWorkspaceTabPersistenceKey({ serverId: modelSelectorServerId, workspaceId })
+      : null;
+    if (!workspaceKey) {
+      return;
+    }
+    const layoutStore = useWorkspaceLayoutStore.getState();
+    const explorerPaneId = selectExplorerSidebarPaneId(layoutStore, workspaceKey);
+    layoutStore.openTab({
+      workspaceKey,
       target: { kind: "btw", agentId: btwAgentId },
+      intent: "reveal",
+      placement: explorerPaneId ? { mode: "prefer", paneId: explorerPaneId } : undefined,
     });
   }, [btwAgentId, modelSelectorServerId]);
 
