@@ -1631,7 +1631,10 @@ export class OmpAgentSession implements AgentSession {
       // Final answers (complete/failed) are rendered by the btw_record event
       // handler; only acknowledge pending work here.
       if (!result.record || result.record.status === "running") {
-        this.emitOmpAssistantMessage("btw accepted; the answer will arrive in the timeline.", emit);
+        this.emitOmpAssistantMessage(
+          "btw accepted; the answer will appear in the Side-questions panel.",
+          emit,
+        );
       }
     } catch (error) {
       this.emitOmpAssistantMessage(`[Error] btw failed: ${this.ompErrorMessage(error)}`, emit);
