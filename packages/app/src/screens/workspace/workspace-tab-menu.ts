@@ -165,6 +165,9 @@ function getCloseButtonTestId(tab: WorkspaceTabDescriptor): string {
   if (tab.target.kind === "new_tab") {
     return `workspace-new-tab-close-${tab.tabId}`;
   }
+  if (tab.target.kind === "btw") {
+    return `workspace-btw-close-${tab.target.agentId}`;
+  }
   return `workspace-file-close-${encodeFilePathForPathSegment(tab.target.path)}`;
 }
 

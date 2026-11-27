@@ -74,6 +74,14 @@ const manifests = {
     compactSheet: { openAsTab: false },
     resourceKey: (target) => `${target.parentAgentId}:${target.subagentId}`,
   },
+  btw: {
+    kind: "btw",
+    supportedHosts: ["main", "explorer"],
+    showCloseButton: true,
+    singleton: false,
+    compactSheet: { openAsTab: false },
+    resourceKey: (target) => `btw:${target.agentId}`,
+  },
   terminal: {
     kind: "terminal",
     supportedHosts: ["main", "explorer"],

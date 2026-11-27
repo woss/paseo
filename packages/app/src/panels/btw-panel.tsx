@@ -1,18 +1,16 @@
-import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { ScrollView, View } from "react-native";
 import { StyleSheet, withUnistyles } from "react-native-unistyles";
+import invariant from "tiny-invariant";
 import { useFetchQuery } from "@/data/query";
 import { MessageCircleQuestionMark } from "lucide-react-native";
 import { AppearanceText as Text } from "@/appearance/text";
 import { AdaptiveTextInput } from "@/components/adaptive-text-input";
 import { Button } from "@/components/ui/button";
-import { Combobox } from "@/components/ui/combobox";
-import type { SheetHeader } from "@/components/adaptive-modal-sheet";
 import { LoadingSpinner } from "@/components/ui/loading-spinner";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { AgentControlTrigger } from "@/composer/agent-controls/control";
-import { ControlTooltipHint } from "@/composer/agent-controls/composer-control";
+import { definePanel, type PanelDescriptor } from "@/panels/panel-registry";
+import { usePaneContext } from "@/panels/pane-context";
 import { useSessionStore, type AgentBtwRecordView } from "@/stores/session-store";
 import { useToast } from "@/contexts/toast-context";
 import { toErrorMessage } from "@/utils/error-messages";
@@ -21,8 +19,6 @@ const ThemedLoadingSpinner = withUnistyles(LoadingSpinner, (theme) => ({
   color: theme.colors.foregroundMuted,
 }));
 
-const EMPTY_OPTIONS: never[] = [];
-const NOOP = () => undefined;
 const EMPTY_BTW_RECORD_MAP = new Map<string, AgentBtwRecordView>();
 
 interface BtwRecordRowProps {
@@ -45,13 +41,13 @@ function BtwRecordRow({ record, runningLabel }: BtwRecordRowProps) {
     );
   } else if (hasFailed) {
     statusLine = (
-      <Text style={styles.recordError} numberOfLines={4}>
+      <Text style={styles.recordError} numberOfLines={6}>
         {record.error ?? record.status}
       </Text>
     );
   } else if (record.answer) {
     statusLine = (
-      <Text style={styles.recordAnswer} numberOfLines={12}>
+      <Text style={styles.recordAnswer} numberOfLines={24}>
         {record.answer}
       </Text>
     );
@@ -59,7 +55,7 @@ function BtwRecordRow({ record, runningLabel }: BtwRecordRowProps) {
 
   return (
     <View style={styles.recordRow}>
-      <Text style={styles.recordQuestion} numberOfLines={4}>
+      <Text style={styles.recordQuestion} numberOfLines={8}>
         {record.question}
       </Text>
       {statusLine}
@@ -67,26 +63,19 @@ function BtwRecordRow({ record, runningLabel }: BtwRecordRowProps) {
   );
 }
 
-interface AgentBtwPanelProps {
-  serverId: string;
-  agentId: string;
-  surface?: "toolbar" | "sheet";
-  disabled?: boolean;
-  onClose?: () => void;
+function btwSortKey(record: AgentBtwRecordView): number {
+  const raw = record.updatedAt ?? record.createdAt;
+  if (typeof raw === "number") return raw;
+  if (typeof raw === "string") return Date.parse(raw) || 0;
+  return 0;
 }
 
-export function AgentBtwPanel({
-  serverId,
-  agentId,
-  surface = "toolbar",
-  disabled = false,
-  onClose,
-}: AgentBtwPanelProps) {
+function BtwPanelPane() {
   const { t } = useTranslation();
   const toast = useToast();
-  const anchorRef = useRef<View>(null);
-  const openRef = useRef(false);
-  const [open, setOpen] = useState(false);
+  const { serverId, target } = usePaneContext();
+  invariant(target.kind === "btw", "BtwPanelPane requires a btw target");
+  const agentId = target.agentId;
   const [question, setQuestion] = useState("");
   const [isAsking, setIsAsking] = useState(false);
 
@@ -100,7 +89,7 @@ export function AgentBtwPanel({
 
   const historyQuery = useFetchQuery<AgentBtwRecordView[]>({
     queryKey: ["btw", serverId, agentId],
-    enabled: open && client !== null,
+    enabled: client !== null,
     dataShape: "list",
     staleTimeMs: 15_000,
     queryFn: async () => {
@@ -124,20 +113,6 @@ export function AgentBtwPanel({
     return [...merged.values()].sort((a, b) => btwSortKey(a) - btwSortKey(b));
   }, [historyQuery.data, pushedRecords]);
 
-  const handleOpenChange = useCallback(
-    (next: boolean) => {
-      openRef.current = next;
-      setOpen(next);
-      if (!next) {
-        setQuestion("");
-        onClose?.();
-      }
-    },
-    [onClose],
-  );
-
-  const handlePress = useCallback(() => handleOpenChange(!open), [handleOpenChange, open]);
-
   const handleAsk = useCallback(async () => {
     const trimmed = question.trim();
     if (!client || trimmed.length === 0 || isAsking) {
@@ -148,14 +123,12 @@ export function AgentBtwPanel({
       await client.askBtw({ agentId, question: trimmed });
       setQuestion("");
     } catch (error) {
-      console.warn("[AgentBtwPanel] askBtw failed", error);
+      console.warn("[BtwPanelPane] askBtw failed", error);
       toast.error(toErrorMessage(error));
     } finally {
       setIsAsking(false);
     }
   }, [agentId, client, isAsking, question, toast]);
-
-  const header = useMemo<SheetHeader>(() => ({ title: t("agentControls.btw.title") }), [t]);
 
   const canAsk = question.trim().length > 0 && !isAsking && client !== null;
   const runningLabel = t("agentControls.btw.running");
@@ -164,8 +137,23 @@ export function AgentBtwPanel({
     void handleAsk();
   }, [handleAsk]);
 
-  const askRow = useMemo(
-    () => (
+  return (
+    <View style={styles.container}>
+      <ScrollView
+        style={styles.recordList}
+        contentContainerStyle={styles.recordListContent}
+        keyboardShouldPersistTaps="handled"
+      >
+        {records.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.recordMuted}>{t("agentControls.btw.empty")}</Text>
+          </View>
+        ) : (
+          records.map((record) => (
+            <BtwRecordRow key={record.id} record={record} runningLabel={runningLabel} />
+          ))
+        )}
+      </ScrollView>
       <View style={styles.askRow}>
         <AdaptiveTextInput
           initialValue={question}
@@ -186,74 +174,41 @@ export function AgentBtwPanel({
           {t("agentControls.btw.askNow")}
         </Button>
       </View>
-    ),
-    [canAsk, isAsking, question, submitQuestion, t],
-  );
-
-  return (
-    <>
-      <Tooltip delayDuration={0} enabledOnDesktop enabledOnMobile={false}>
-        <TooltipTrigger asChild triggerRefProp="ref">
-          <AgentControlTrigger
-            ref={anchorRef}
-            icon={MessageCircleQuestionMark}
-            surface={surface}
-            label={t("agentControls.btw.title")}
-            showToolbarLabel={false}
-            showCaret={false}
-            open={open}
-            disabled={disabled}
-            onPress={handlePress}
-            accessibilityLabel={t("agentControls.btw.open")}
-            testID="agent-btw-control"
-          />
-        </TooltipTrigger>
-        <TooltipContent>
-          <ControlTooltipHint label={t("agentControls.btw.open")} shortcutKeys={null} />
-        </TooltipContent>
-      </Tooltip>
-      <Combobox
-        options={EMPTY_OPTIONS}
-        value=""
-        onSelect={NOOP}
-        open={open}
-        onOpenChange={handleOpenChange}
-        anchorRef={anchorRef}
-        desktopPlacement="top-start"
-        desktopMinWidth={320}
-        desktopLockWidth
-        desktopChildrenScrollEnabled={false}
-        header={header}
-        footer={askRow}
-      >
-        <ScrollView
-          style={styles.recordList}
-          contentContainerStyle={styles.recordListContent}
-          keyboardShouldPersistTaps="handled"
-        >
-          {records.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Text style={styles.recordMuted}>{t("agentControls.btw.empty")}</Text>
-            </View>
-          ) : (
-            records.map((record) => (
-              <BtwRecordRow key={record.id} record={record} runningLabel={runningLabel} />
-            ))
-          )}
-        </ScrollView>
-      </Combobox>
-    </>
+    </View>
   );
 }
 
-function btwSortKey(record: AgentBtwRecordView): number {
-  const raw = record.updatedAt ?? record.createdAt;
-  if (typeof raw === "number") return raw;
-  if (typeof raw === "string") return Date.parse(raw) || 0;
-  return 0;
+function useBtwPanelDescriptor(
+  _target: { kind: "btw"; agentId: string },
+  _context: { serverId: string },
+): PanelDescriptor {
+  const { t } = useTranslation();
+  return {
+    label: t("agentControls.btw.title"),
+    subtitle: t("agentControls.btw.open"),
+    tooltip: t("agentControls.btw.open"),
+    titleState: "ready",
+    icon: MessageCircleQuestionMark,
+    statusBucket: null,
+  };
 }
+
+export const btwPanelRegistration = definePanel("btw", {
+  component: BtwPanelPane,
+  useDescriptor: useBtwPanelDescriptor,
+});
 
 const styles = StyleSheet.create((theme) => ({
+  container: {
+    flex: 1,
+    minHeight: 0,
+  },
+  recordList: {
+    flex: 1,
+  },
+  recordListContent: {
+    paddingVertical: theme.spacing[1],
+  },
   askRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -266,13 +221,8 @@ const styles = StyleSheet.create((theme) => ({
   askInput: {
     flex: 1,
   },
-  recordList: {
-    flexGrow: 0,
-  },
-  recordListContent: {
-    paddingVertical: theme.spacing[1],
-  },
   emptyState: {
+    alignItems: "center",
     paddingHorizontal: theme.spacing[3],
     paddingVertical: theme.spacing[4],
   },

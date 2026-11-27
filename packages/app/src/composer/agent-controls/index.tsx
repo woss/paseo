@@ -10,7 +10,7 @@ import {
 } from "react-native";
 import { StyleSheet, useUnistyles } from "react-native-unistyles";
 import { useShallow } from "zustand/shallow";
-import { Settings2 } from "lucide-react-native";
+import { Settings2, MessageCircleQuestionMark } from "lucide-react-native";
 import { readSelectOption, type ComposerOptionControls } from "@/agent-controls/option-controls";
 import { formatThinkingOptionLabel } from "@/agent-controls/labels";
 import { CombinedModelSelector } from "@/components/combined-model-selector";
@@ -29,7 +29,9 @@ import {
   useLiveAgentModeControl,
   type AgentModeControlValue,
 } from "@/composer/agent-controls/mode-control";
-import { AgentBtwPanel } from "@/composer/agent-controls/btw-panel";
+import { openWorkspaceTargetBeside } from "@/workspace-tabs/open-beside";
+import { AgentControlTrigger } from "@/composer/agent-controls/control";
+import { buildWorkspaceTabPersistenceKey } from "@/workspace-tabs/model";
 import { AdaptiveModalSheet, type SheetHeader } from "@/components/adaptive-modal-sheet";
 import type {
   AgentOptionControl,
@@ -805,6 +807,23 @@ function DesktopAgentControlsContent(props: DesktopAgentControlsContentProps) {
     btwAgentId,
   } = props;
   const { action: toggleAction, keys: modelKeys } = useModelPickerShortcut(disabled);
+  const handleOpenBtwPanel = useCallback(() => {
+    if (!btwAgentId || !modelSelectorServerId) {
+      return;
+    }
+    const agent = useSessionStore
+      .getState()
+      .sessions[modelSelectorServerId]?.agents.get(btwAgentId);
+    openWorkspaceTargetBeside({
+      workspaceKey: agent?.workspaceId
+        ? buildWorkspaceTabPersistenceKey({
+            serverId: modelSelectorServerId,
+            workspaceId: agent.workspaceId,
+          })
+        : null,
+      target: { kind: "btw", agentId: btwAgentId },
+    });
+  }, [btwAgentId, modelSelectorServerId]);
   const modelTooltipLabel = t(getAgentControlHintKey("model"));
   const modelToolbar = useMemo(
     () => ({
@@ -861,11 +880,16 @@ function DesktopAgentControlsContent(props: DesktopAgentControlsContentProps) {
       {modeControl ? <AgentModeControl {...modeControl} onClose={onDropdownClose} /> : null}
 
       {provider === "omp" && btwAgentId && modelSelectorServerId ? (
-        <AgentBtwPanel
-          serverId={modelSelectorServerId}
-          agentId={btwAgentId}
+        <AgentControlTrigger
+          icon={MessageCircleQuestionMark}
+          surface="toolbar"
+          label={t("agentControls.btw.title")}
+          showToolbarLabel={false}
+          showCaret={false}
           disabled={disabled}
-          onClose={onDropdownClose}
+          onPress={handleOpenBtwPanel}
+          accessibilityLabel={t("agentControls.btw.open")}
+          testID="agent-btw-control"
         />
       ) : null}
 
@@ -926,6 +950,7 @@ interface SheetAgentControlsContentProps extends AgentControlsContentProps {
 }
 
 function SheetAgentControlsContent(props: SheetAgentControlsContentProps) {
+  const { t } = useTranslation();
   const sheetBridge = useComposerSheetBridge();
   const {
     provider,
@@ -958,6 +983,24 @@ function SheetAgentControlsContent(props: SheetAgentControlsContentProps) {
     canSwitchProvider,
   } = props;
 
+  const handleOpenBtwPanel = useCallback(() => {
+    if (!btwAgentId || !modelSelectorServerId) {
+      return;
+    }
+    const agent = useSessionStore
+      .getState()
+      .sessions[modelSelectorServerId]?.agents.get(btwAgentId);
+    openWorkspaceTargetBeside({
+      workspaceKey: agent?.workspaceId
+        ? buildWorkspaceTabPersistenceKey({
+            serverId: modelSelectorServerId,
+            workspaceId: agent.workspaceId,
+          })
+        : null,
+      target: { kind: "btw", agentId: btwAgentId },
+    });
+  }, [btwAgentId, modelSelectorServerId]);
+
   const sheetControls = (
     <View style={styles.combinedSheetControls} testID="agent-controls-combined-sheet-controls">
       <ComposerControls
@@ -971,12 +1014,16 @@ function SheetAgentControlsContent(props: SheetAgentControlsContentProps) {
       {modeControl ? <AgentModeControl {...modeControl} surface="sheet" /> : null}
 
       {provider === "omp" && btwAgentId && modelSelectorServerId ? (
-        <AgentBtwPanel
-          serverId={modelSelectorServerId}
-          agentId={btwAgentId}
+        <AgentControlTrigger
+          icon={MessageCircleQuestionMark}
           surface="sheet"
+          label={t("agentControls.btw.title")}
+          showToolbarLabel={false}
+          showCaret={false}
           disabled={disabled}
-          onClose={onDropdownClose}
+          onPress={handleOpenBtwPanel}
+          accessibilityLabel={t("agentControls.btw.open")}
+          testID="agent-btw-control"
         />
       ) : null}
 
