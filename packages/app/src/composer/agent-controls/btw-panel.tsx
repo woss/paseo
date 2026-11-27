@@ -13,11 +13,7 @@ import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AgentControlTrigger } from "@/composer/agent-controls/control";
 import { ControlTooltipHint } from "@/composer/agent-controls/composer-control";
-import {
-  selectAgentBtwRecords,
-  useSessionStore,
-  type AgentBtwRecordView,
-} from "@/stores/session-store";
+import { useSessionStore, type AgentBtwRecordView } from "@/stores/session-store";
 import { useToast } from "@/contexts/toast-context";
 import { toErrorMessage } from "@/utils/error-messages";
 
@@ -27,6 +23,7 @@ const ThemedLoadingSpinner = withUnistyles(LoadingSpinner, (theme) => ({
 
 const EMPTY_OPTIONS: never[] = [];
 const NOOP = () => undefined;
+const EMPTY_BTW_RECORD_MAP = new Map<string, AgentBtwRecordView>();
 
 interface BtwRecordRowProps {
   record: AgentBtwRecordView;
@@ -94,9 +91,12 @@ export function AgentBtwPanel({
   const [isAsking, setIsAsking] = useState(false);
 
   const client = useSessionStore((state) => state.sessions[serverId]?.client ?? null);
-  const pushedRecords = useSessionStore((state) =>
-    selectAgentBtwRecords(state.sessions[serverId], agentId),
+  // Subscribe to the stable inner Map: a selector that builds/sorts a new array
+  // per read loops useSyncExternalStore forever (React error #185).
+  const pushedRecordMap = useSessionStore(
+    (state) => state.sessions[serverId]?.agentBtwRecords.get(agentId) ?? EMPTY_BTW_RECORD_MAP,
   );
+  const pushedRecords = useMemo(() => [...pushedRecordMap.values()], [pushedRecordMap]);
 
   const historyQuery = useFetchQuery<AgentBtwRecordView[]>({
     queryKey: ["btw", serverId, agentId],

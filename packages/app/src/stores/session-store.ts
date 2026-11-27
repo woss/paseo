@@ -354,25 +354,6 @@ export function selectAgentTimelineState(
   return items.length > 0 ? { status: "painted", items } : { status: "cold" };
 }
 
-/** omp side questions (btw) for one agent, sorted by updatedAt ascending. */
-export function selectAgentBtwRecords(
-  session: SessionState | undefined,
-  agentId: string,
-): AgentBtwRecordView[] {
-  const records = session?.agentBtwRecords.get(agentId);
-  if (!records || records.size === 0) {
-    return [];
-  }
-  return [...records.values()].sort((a, b) => btwTimestamp(a) - btwTimestamp(b));
-}
-
-function btwTimestamp(record: AgentBtwRecordView): number {
-  const value = record.updatedAt ?? record.createdAt;
-  if (typeof value === "number") return value;
-  if (typeof value === "string") return Date.parse(value);
-  return 0;
-}
-
 /** Text of the loaded user messages, newest first, with back-to-back repeats collapsed. */
 export function selectAgentSentMessages(
   session: SessionState | undefined,
